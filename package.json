@@ -1,0 +1,27 @@
+{
+  "name": "hikari",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Anime discovery deck that requests through Jellyseerr",
+  "scripts": {
+    "dev": "node server/index.js & vite",
+    "dev:server": "node --watch server/index.js",
+    "build": "vite build",
+    "start": "NODE_ENV=production node server/index.js",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "hono": "^4.13.7"
+  },
+  "devDependencies": {
+    "@fontsource-variable/onest": "^5.3.1",
+    "@fontsource-variable/schibsted-grotesk": "^5.3.0",
+    "@solidjs/vite-plugin": "3.0.0-next.43",
+    "@solidjs/web": "2.0.0-rc.8",
+    "solid-js": "2.0.0-rc.8",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.0"
+  }
+}
