@@ -1,0 +1,9 @@
+services:
+  hikari:
+    build: .
+    image: hikari:local
+    container_name: hikari
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "7997:7997"
