@@ -28,16 +28,30 @@ const MEDIA_FIELDS = `
   siteUrl
 `;
 
-async function gql(query, variables) {
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+async function gql(query, variables, attempt = 0) {
   const headers = { "Content-Type": "application/json", Accept: "application/json" };
   if (config.anilist.token) headers.Authorization = `Bearer ${config.anilist.token}`;
 
-  const body = await request("anilist", ENDPOINT, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ query, variables }),
-    timeout: 25000
-  });
+  let body;
+  try {
+    body = await request("anilist", ENDPOINT, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ query, variables }),
+      timeout: 25000
+    });
+  } catch (err) {
+    // AniList allows 90 requests/minute and answers 429 once that is exceeded. One backoff
+    // covers a burst; a sustained limit falls through to the cache's stale value.
+    const retryable = err.status === 429 || (err.status >= 500 && err.status < 600);
+    if (retryable && attempt < 2) {
+      await sleep(attempt === 0 ? 1500 : 4000);
+      return gql(query, variables, attempt + 1);
+    }
+    throw err;
+  }
 
   if (body.errors?.length) {
     throw new Error(`AniList: ${body.errors.map(e => e.message).join("; ")}`);

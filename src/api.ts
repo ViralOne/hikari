@@ -16,6 +16,7 @@ export type SeasonInfo = {
   name: string;
   airDate: string | null;
   episodeCount: number;
+  taken: boolean;
   status: string;
 };
 

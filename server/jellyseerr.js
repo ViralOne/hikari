@@ -167,13 +167,19 @@ export async function resolve(anime) {
 
       result.seasons = (detail.seasons || [])
         .filter(s => s.seasonNumber > 0)
-        .map(s => ({
-          seasonNumber: s.seasonNumber,
-          name: s.name,
-          airDate: s.airDate,
-          episodeCount: s.episodeCount,
-          status: taken.get(s.seasonNumber) || "none"
-        }));
+        .map(s => {
+          const label = taken.get(s.seasonNumber);
+          return {
+            seasonNumber: s.seasonNumber,
+            name: s.name,
+            airDate: s.airDate,
+            episodeCount: s.episodeCount,
+            // `taken` is the flag clients branch on; `status` is only for display, so changing
+            // the wording cannot silently re-enable requesting.
+            taken: Boolean(label),
+            status: label || "none"
+          };
+        });
       result.suggestedSeason = guessSeasonNumber(anime, result.seasons);
     } catch {
       result.seasons = null;

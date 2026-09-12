@@ -20,6 +20,13 @@ const app = new Hono();
 // The origin check blocks that; requests without an Origin header (curl) still pass.
 app.use("/api/*", csrf());
 
+// Without an explicit directive browsers may heuristically cache these GETs, which showed a
+// season as still requestable after it had already been requested.
+app.use("/api/*", async (c, next) => {
+  await next();
+  c.header("Cache-Control", "no-store");
+});
+
 // Optional shared secret for the state-changing routes. Unset = LAN-trusted, which is the
 // same posture as the rest of the stack, but the port must then stay off the internet.
 app.use("/api/request", requireToken);

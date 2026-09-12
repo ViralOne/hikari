@@ -24,14 +24,27 @@ export function cached(key, ttlMs, producer) {
   const hit = store.get(key);
   if (hit && hit.expires > now) return hit.value;
 
+  const previous = hit?.settled;
+
   const value = Promise.resolve()
     .then(producer)
+    .then(result => {
+      const entry = store.get(key);
+      if (entry) entry.settled = result;
+      return result;
+    })
     .catch(err => {
       store.delete(key);
+      // Serving the last good value beats blanking the page when an upstream rate-limits or
+      // blips. AniList in particular answers 429 for a full minute.
+      if (previous !== undefined) {
+        console.warn(`[hikari] ${key}: ${err.message} — serving stale value`);
+        return previous;
+      }
       throw err;
     });
 
-  store.set(key, { value, expires: now + ttlMs });
+  store.set(key, { value, expires: now + ttlMs, settled: previous });
 
   if (store.size > MAX_ENTRIES) {
     sweep();

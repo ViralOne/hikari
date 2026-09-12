@@ -6,8 +6,6 @@ import { Icon } from "./Icon";
 type Selection = number[] | "all";
 type Outcome = { ok: boolean; message: string };
 
-const DONE = new Set(["available", "partial", "processing", "pending"]);
-
 const fetchDetail = (id: number, _token: number) => getAnime(id);
 
 export function Detail(props: { id: number; token: number; onClose: () => void; onRequested: () => void }) {
@@ -21,9 +19,9 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
     if (!seasons || seasons.length === 0) return "all";
 
     const suggestedSeason = suggested ? seasons.find(s => s.seasonNumber === suggested) : undefined;
-    if (suggestedSeason && !DONE.has(suggestedSeason.status)) return [suggestedSeason.seasonNumber];
+    if (suggestedSeason && !suggestedSeason.taken) return [suggestedSeason.seasonNumber];
 
-    const open = seasons.filter(s => !DONE.has(s.status));
+    const open = seasons.filter(s => !s.taken);
     if (open.length === 1) return [open[0].seasonNumber];
 
     return [];
@@ -367,10 +365,10 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                     {request => {
                       const seasonList = createMemo(() => request().seasons ?? []);
                       const openSeasons = createMemo(() =>
-                        seasonList().filter(season => !DONE.has(season.status)).map(season => season.seasonNumber)
+                        seasonList().filter(season => !season.taken).map(season => season.seasonNumber)
                       );
                       const doneSeasons = createMemo(() =>
-                        seasonList().filter(season => DONE.has(season.status)).map(season => season.seasonNumber)
+                        seasonList().filter(season => season.taken).map(season => season.seasonNumber)
                       );
                       const allDone = createMemo(() => seasonList().length > 0 && openSeasons().length === 0);
 
@@ -432,7 +430,7 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                               <div class="season-list">
                                 <For each={request().seasons ?? []}>
                                   {season => {
-                                    const done = DONE.has(season.status);
+                                    const done = season.taken;
                                     const picked = createMemo(() => submittable().includes(season.seasonNumber));
                                     return (
                                       <label
@@ -456,9 +454,7 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                                           <Show when={season.airDate}>{date => <> · {date()}</>}</Show>
                                           <Show when={done}>
                                             {" · "}
-                                            {season.status === "available"
-                                              ? "already available"
-                                              : "already requested"}
+                                            {season.status}
                                           </Show>
                                         </span>
                                       </label>
