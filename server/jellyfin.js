@@ -1,5 +1,5 @@
 import { config, enabled } from "./config.js";
-import { cached } from "./cache.js";
+import { cached, invalidate } from "./cache.js";
 import { request } from "./http.js";
 import { normalize, seasonOrdinal, similarity, usable } from "./match.js";
 
@@ -181,6 +181,46 @@ async function computeProgress(anime, library, shoko) {
     started: played > 0 || percent > 0,
     finished: matches.every(entry => entry.fullyPlayed) || (percent >= 100 && unplayed === 0)
   };
+}
+
+// Ordered episode items with their Jellyfin ids, which is what marking played needs. Season 0
+// is dropped: specials are not part of the run AniList counts.
+export async function episodeItems(seriesIds) {
+  if (!enabled.jellyfin || !seriesIds?.length) return [];
+
+  const user = await userId();
+  const items = [];
+
+  for (const seriesId of seriesIds.slice(0, 4)) {
+    const body = await api(
+      `/Items?userId=${user}&ParentId=${seriesId}&IncludeItemTypes=Episode&Recursive=true` +
+        `&Fields=UserData&SortBy=ParentIndexNumber,IndexNumber&SortOrder=Ascending`
+    );
+    for (const item of body.Items || []) {
+      if ((item.ParentIndexNumber ?? 0) === 0) continue;
+      items.push({
+        id: item.Id,
+        season: item.ParentIndexNumber ?? null,
+        episode: item.IndexNumber ?? null,
+        name: item.Name,
+        played: Boolean(item.UserData?.Played)
+      });
+    }
+  }
+
+  return items.sort((a, b) => (a.season ?? 0) - (b.season ?? 0) || (a.episode ?? 0) - (b.episode ?? 0));
+}
+
+// Marks an item played for the configured user. Jellyfin 12 dropped /Users/{id}/PlayedItems.
+export async function markPlayed(itemId) {
+  const user = await userId();
+  await request("jellyfin", `${config.jellyfin.url}/UserPlayedItems/${itemId}?userId=${user}`, {
+    method: "POST",
+    headers: headers(),
+    timeout: 30000
+  });
+  invalidate("jellyfin:");
+  return true;
 }
 
 // Exact episode counts and the next unwatched episode. Only used by the detail panel.

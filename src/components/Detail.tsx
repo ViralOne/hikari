@@ -3,11 +3,15 @@ import {
   ANILIST_STATUSES,
   getAnime,
   getList,
+  linkShokoFile,
+  markJellyfinPlayed,
   postRequest,
+  rescanShokoFile,
   saveListEntry,
   searchMissingEpisodes,
   setSonarrSeriesType,
   type MissingSearchPlan,
+  type PlayedPlan,
   type SeasonInfo
 } from "../api";
 import { bytes, formatLabel, seasonLabel, statusLabel } from "../format";
@@ -29,6 +33,7 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
   // title, and a draft episode number left over from the previous one would be wrong.
   const [drafts, setDrafts] = createSignal<Record<number, number>>({});
   const [plans, setPlans] = createSignal<Record<number, MissingSearchPlan>>({});
+  const [played, setPlayed] = createSignal<Record<number, PlayedPlan>>({});
 
   const defaultSelection = (seasons: SeasonInfo[] | null | undefined, suggested: number | null | undefined): Selection => {
     if (!seasons || seasons.length === 0) return "all";
@@ -122,6 +127,56 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
             ok: true,
             message: `Sonarr is searching for ${plan.matched.length} episode${plan.matched.length === 1 ? "" : "s"}.`
           }
+        }));
+        props.onRequested();
+      }
+    } catch (err) {
+      setOutcomes(prev => ({
+        ...prev,
+        [props.id]: { ok: false, message: err instanceof Error ? err.message : String(err) }
+      }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const repairShoko = async (action: "rescan" | "link", anilistId: number, fileId: number) => {
+    setBusy(true);
+    try {
+      const result =
+        action === "rescan"
+          ? await rescanShokoFile(anilistId, fileId)
+          : await linkShokoFile(anilistId, fileId);
+      setOutcomes(prev => ({
+        ...prev,
+        [props.id]: {
+          ok: true,
+          message:
+            action === "rescan"
+              ? `Shoko is rescanning the file for episode ${result.episode}. Reopen this panel in a moment to see whether AniDB matched it.`
+              : `Linked the file to episode ${result.episode}.`
+        }
+      }));
+      props.onRequested();
+    } catch (err) {
+      setOutcomes(prev => ({
+        ...prev,
+        [props.id]: { ok: false, message: err instanceof Error ? err.message : String(err) }
+      }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const syncJellyfin = async (anilistId: number, upTo: number | undefined, confirm: boolean) => {
+    setBusy(true);
+    try {
+      const plan = await markJellyfinPlayed(anilistId, upTo, confirm);
+      setPlayed(prev => ({ ...prev, [props.id]: plan }));
+      if (plan.executed) {
+        setOutcomes(prev => ({
+          ...prev,
+          [props.id]: { ok: true, message: `Marked ${plan.marked} episode(s) played in Jellyfin.` }
         }));
         props.onRequested();
       }
@@ -327,15 +382,46 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                                 )}
                               </Show>
 
+                              {/* Deliberately phrased from the reconciliation rather than the raw
+                                  gap: saying "not downloaded" about files that are sitting on the
+                                  disk sent me looking for a download that had already happened. */}
                               <Show when={watch().scoped && (watch().aired ?? 0) - episodes().total > 0}>
-                                <div class="notice warn">
-                                  {(watch().aired ?? 0) - episodes().total} aired episode
-                                  {(watch().aired ?? 0) - episodes().total === 1 ? "" : "s"} not downloaded yet.
-                                  <Show when={anime().shoko?.files?.missing?.length}>
-                                    {" "}
-                                    The Shoko box below lists which, and can send them to Sonarr.
-                                  </Show>
-                                </div>
+                                <Show
+                                  when={anime().shoko?.report}
+                                  fallback={
+                                    <div class="notice warn">
+                                      {(watch().aired ?? 0) - episodes().total} aired episode
+                                      {(watch().aired ?? 0) - episodes().total === 1 ? "" : "s"} not downloaded yet.
+                                    </div>
+                                  }
+                                >
+                                  {report => (
+                                    <>
+                                      <Show when={report().counts.notDownloaded > 0}>
+                                        <div class="notice warn">
+                                          {report().counts.notDownloaded} aired episode
+                                          {report().counts.notDownloaded === 1 ? "" : "s"} not downloaded yet. The
+                                          Shoko box below can send them to Sonarr.
+                                        </div>
+                                      </Show>
+                                      <Show
+                                        when={
+                                          report().counts.onDiskUnlinked + report().counts.onDiskNotHashed > 0
+                                        }
+                                      >
+                                        <div class="notice info">
+                                          {report().counts.onDiskUnlinked + report().counts.onDiskNotHashed} aired
+                                          episode
+                                          {report().counts.onDiskUnlinked + report().counts.onDiskNotHashed === 1
+                                            ? " is"
+                                            : "s are"}{" "}
+                                          already on disk but not matched by Shoko, so they do not count here. The
+                                          Shoko box below can repair that.
+                                        </div>
+                                      </Show>
+                                    </>
+                                  )}
+                                </Show>
                               </Show>
 
                               <Show when={!watch().scoped}>
@@ -343,6 +429,72 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                                   Matched by {watch().via}, which can cover the whole series rather than just this
                                   entry, so counts are what is on disk instead of this season's length.
                                 </div>
+                              </Show>
+
+                              {/* Jellyfin keys played flags to item ids, so a Shokofin VFS rebuild
+                                  orphans the whole history and a watched season reads as 0. AniList
+                                  usually survives that, so it can be copied back. */}
+                              <Show
+                                when={
+                                  watch().scoped &&
+                                  anime().list &&
+                                  anime().list!.progress > episodes().played
+                                }
+                              >
+                                <Show
+                                  when={played()[props.id]}
+                                  fallback={
+                                    <button
+                                      class="btn"
+                                      disabled={busy()}
+                                      onClick={() => syncJellyfin(anime().id, undefined, false)}
+                                    >
+                                      Mark {anime().list!.progress} episode
+                                      {anime().list!.progress === 1 ? "" : "s"} played in Jellyfin (from AniList)
+                                    </button>
+                                  }
+                                >
+                                  {plan => (
+                                    <div class="plan">
+                                      <Show
+                                        when={plan().episodes.length > 0}
+                                        fallback={
+                                          <div class="notice info">
+                                            Jellyfin already has the first {plan().upTo} marked played.
+                                          </div>
+                                        }
+                                      >
+                                        <div class="box-title">
+                                          {plan().executed ? "Marked" : "Would mark"} {plan().episodes.length} of{" "}
+                                          {plan().total} played in {plan().item}
+                                        </div>
+                                        <For each={plan().episodes}>
+                                          {item => (
+                                            <div class="plan-row">
+                                              <span class="plan-ep">
+                                                S{String(item.season ?? 0).padStart(2, "0")}E
+                                                {String(item.episode ?? 0).padStart(2, "0")}
+                                              </span>
+                                              <span class="dim">{item.name}</span>
+                                            </div>
+                                          )}
+                                        </For>
+                                        <Show when={!plan().executed}>
+                                          <button
+                                            class="btn primary"
+                                            disabled={busy()}
+                                            onClick={() => syncJellyfin(anime().id, plan().upTo, true)}
+                                          >
+                                            Mark them played
+                                          </button>
+                                          <div class="hint">
+                                            Only marks played, never unmarks, and only up to episode {plan().upTo}.
+                                          </div>
+                                        </Show>
+                                      </Show>
+                                    </div>
+                                  )}
+                                </Show>
                               </Show>
                               <Show when={episodes().furthest}>
                                 {furthest => (
@@ -521,99 +673,149 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                             </Show>
                           </dd>
                         </dl>
-                        <Show when={info().files?.missing?.length}>
-                          <div class="notice warn">
-                            Missing episodes: {info().files!.missing.join(", ")}
-                          </div>
+                        {/* "Missing episodes: 6, 8, 11" on its own sent me hunting for a download
+                            that had already happened. Each row now says which of the four
+                            different things "missing" means, and offers the matching fix. */}
+                        <Show
+                          when={info().report}
+                          fallback={
+                            <Show when={info().files?.missing?.length}>
+                              <div class="notice warn">
+                                Missing episodes: {info().files!.missing.join(", ")}
+                              </div>
+                            </Show>
+                          }
+                        >
+                          {report => (
+                            <div class="plan">
+                              <div class="box-title">
+                                {report().rows.length} episode{report().rows.length === 1 ? "" : "s"} without a file
+                              </div>
 
-                          <Show
-                            when={plans()[props.id]}
-                            fallback={
-                              <button class="btn" disabled={busy()} onClick={() => planSearch(anime().id, false)}>
-                                Look for these in Sonarr
-                              </button>
-                            }
-                          >
-                            {plan => (
-                              <div class="plan">
-                                <Show
-                                  when={plan().matched.length > 0}
-                                  fallback={
-                                    <Show
-                                      when={
-                                        plan().skipped.length > 0 &&
-                                        plan().skipped.every(item => item.code === "already-on-disk")
-                                      }
-                                      fallback={
-                                        <div class="notice info">
-                                          Nothing to search: no Sonarr episode without a file matches these air dates.
-                                        </div>
-                                      }
-                                    >
-                                      {/* The interesting case. Nothing needs downloading; Shoko just
-                                          never matched the files it already has to AniDB. */}
-                                      <div class="notice ok">
-                                        Nothing to download — Sonarr already has all{" "}
-                                        {plan().skipped.length} of these files. They are missing from Shoko
-                                        only, which means Shoko never matched them to an AniDB episode.
-                                        <Show when={info().unrecognized}>
-                                          {count => (
-                                            <>
-                                              {" "}
-                                              Shoko currently has <strong>{count()}</strong> unrecognised files.
-                                            </>
-                                          )}
-                                        </Show>{" "}
-                                        Fix it in Shoko under Utilities, Unrecognised Files, or rescan the import
-                                        folder.
-                                      </div>
+                              <For each={report().rows}>
+                                {row => (
+                                  <div class="plan-row">
+                                    <span class="plan-ep">ep {row.episode ?? "?"}</span>
+                                    <span class={["plan-state", row.state]}>
+                                      {row.state === "not-downloaded"
+                                        ? "not downloaded"
+                                        : row.state === "on-disk-unlinked"
+                                          ? "on disk, not linked to AniDB"
+                                          : row.state === "on-disk-not-hashed"
+                                            ? "on disk, Shoko has not scanned it"
+                                            : row.state === "not-aired"
+                                              ? "not aired yet"
+                                              : (row.detail ?? "unresolved")}
+                                    </span>
+                                    <span class="plan-date">
+                                      <Show when={row.sonarr}>
+                                        {sonarr => (
+                                          <>
+                                            S{String(sonarr().seasonNumber).padStart(2, "0")}E
+                                            {String(sonarr().episodeNumber).padStart(2, "0")}
+                                            <Show when={sonarr().size}>{size => <> · {bytes(size())}</>}</Show>
+                                            {" · "}
+                                          </>
+                                        )}
+                                      </Show>
+                                      {row.airDate ?? "no air date"}
+                                    </span>
+
+                                    <Show when={row.state === "on-disk-unlinked" ? row.shokoFile : null}>
+                                      {file => (
+                                        <span class="plan-actions">
+                                          <button
+                                            class="btn tiny ghost"
+                                            disabled={busy()}
+                                            title="Ask AniDB about this file again"
+                                            onClick={() => repairShoko("rescan", anime().id, file().fileId)}
+                                          >
+                                            Rescan
+                                          </button>
+                                          <Show when={row.shokoEpisodeId}>
+                                            <button
+                                              class="btn tiny"
+                                              disabled={busy()}
+                                              title="Link this file to the AniDB episode by hand"
+                                              onClick={() => repairShoko("link", anime().id, file().fileId)}
+                                            >
+                                              Link to ep {row.episode}
+                                            </button>
+                                          </Show>
+                                        </span>
+                                      )}
                                     </Show>
+                                  </div>
+                                )}
+                              </For>
+
+                              <Show when={report().counts.onDiskUnlinked > 0}>
+                                <div class="hint">
+                                  Rescan asks AniDB about the file again. If AniDB has no record of that release,
+                                  linking by hand is the fix — it only writes a cross reference, nothing on disk
+                                  changes. Across the whole collection Shoko has {report().collection.unlinked}{" "}
+                                  unlinked file{report().collection.unlinked === 1 ? "" : "s"} of{" "}
+                                  {report().collection.files}.
+                                </div>
+                              </Show>
+
+                              <Show when={report().counts.onDiskNotHashed > 0}>
+                                <div class="hint">
+                                  Files Shoko has never scanned need an import run: Shoko, Utilities, Actions,
+                                  Import Folder Scan.
+                                </div>
+                              </Show>
+
+                              <Show when={report().counts.notDownloaded > 0}>
+                                <Show
+                                  when={plans()[props.id]}
+                                  fallback={
+                                    <button class="btn" disabled={busy()} onClick={() => planSearch(anime().id, false)}>
+                                      Look for the {report().counts.notDownloaded} missing file
+                                      {report().counts.notDownloaded === 1 ? "" : "s"} in Sonarr
+                                    </button>
                                   }
                                 >
-                                  <div class="box-title">
-                                    {plan().executed ? "Searching" : "Would search"} {plan().matched.length} episode
-                                    {plan().matched.length === 1 ? "" : "s"} in {plan().series.title}
-                                  </div>
-                                  <For each={plan().matched}>
-                                    {item => (
-                                      <div class="plan-row">
-                                        <span>
-                                          S{String(item.seasonNumber).padStart(2, "0")}E
-                                          {String(item.episodeNumber).padStart(2, "0")}
-                                        </span>
-                                        <span class="dim">{item.title ?? "untitled"}</span>
-                                        <span class="plan-date">
-                                          aired {item.airDate}
-                                          <Show when={!item.monitored}> · will be monitored</Show>
-                                        </span>
+                                  {plan => (
+                                    <>
+                                      <div class="box-title">
+                                        {plan().executed ? "Searching" : "Would search"} {plan().matched.length} episode
+                                        {plan().matched.length === 1 ? "" : "s"}
                                       </div>
-                                    )}
-                                  </For>
-                                  <Show when={!plan().executed}>
-                                    <button
-                                      class="btn primary"
-                                      disabled={busy()}
-                                      onClick={() => planSearch(anime().id, true)}
-                                    >
-                                      Search Sonarr now
-                                    </button>
-                                    <div class="hint">
-                                      This asks your indexers for these episodes and downloads whatever they return.
-                                    </div>
-                                  </Show>
+                                      <For each={plan().matched}>
+                                        {item => (
+                                          <div class="plan-row">
+                                            <span class="plan-ep">
+                                              S{String(item.seasonNumber).padStart(2, "0")}E
+                                              {String(item.episodeNumber).padStart(2, "0")}
+                                            </span>
+                                            <span class="dim">{item.title ?? "untitled"}</span>
+                                            <span class="plan-date">
+                                              <Show when={!item.monitored}>will be monitored · </Show>
+                                              {item.airDate}
+                                            </span>
+                                          </div>
+                                        )}
+                                      </For>
+                                      <Show when={!plan().executed}>
+                                        <button
+                                          class="btn primary"
+                                          disabled={busy()}
+                                          onClick={() => planSearch(anime().id, true)}
+                                        >
+                                          Search Sonarr now
+                                        </button>
+                                        <div class="hint">
+                                          This asks your indexers for these episodes and downloads whatever they
+                                          return.
+                                        </div>
+                                      </Show>
+                                    </>
+                                  )}
                                 </Show>
-
-                                <Show when={plan().skipped.length > 0}>
-                                  <div class="hint">
-                                    Left alone:{" "}
-                                    {plan()
-                                      .skipped.map(item => `ep ${item.episode ?? "?"} (${item.reason})`)
-                                      .join("; ")}
-                                  </div>
-                                </Show>
-                              </div>
-                            )}
-                          </Show>
+                              </Show>
+                            </div>
+                          )}
                         </Show>
                         <Show when={info().files?.groups?.length}>
                           <dl class="kv">

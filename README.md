@@ -35,11 +35,27 @@ With writes enabled you can set the list status and step episode progress up or 
 Jellyfin's count across in one click when it is ahead. Nothing is written unless
 `ANILIST_ALLOW_WRITES=true`.
 
-**Missing episodes**
-When AniDB says an episode aired but it is not on disk, Hikari matches it to the Sonarr episode by
-air date and offers to search for it. It shows you the exact list first and only searches after you
-confirm. If Sonarr turns out to already have the file, it says so instead — that case is a Shoko
-import gap, not a download gap, and no search is sent.
+**Missing episodes, reconciled**
+"3 missing" turns out to mean four different things, and only one of them is a download. Every
+episode AniDB knows about but Shoko has no file for gets a row saying which it is:
+
+| State | What it means | Offered fix |
+| --- | --- | --- |
+| not downloaded | Nothing on disk | Search Sonarr, after showing you the list |
+| on disk, not linked to AniDB | Shoko hashed the file, AniDB never matched it | Rescan, or link it by hand |
+| on disk, not scanned | The file exists, Shoko has not seen it | Points you at an import scan |
+| not aired yet | Counted by AniDB, has not aired | Nothing to do |
+
+Episodes are matched to Sonarr by **air date**, because AniDB numbers a split cour from 1 while
+Sonarr keeps TVDB's numbering. Anything that does not resolve to exactly one Sonarr episode is
+reported and left alone.
+
+**Repairing watch state**
+Jellyfin keys played flags to item ids, so when Shokofin rebuilds its virtual file system it
+creates new items and the entire watch history is orphaned — a season you finished reads as 0.
+When AniList is ahead of Jellyfin, Hikari offers to mark those episodes played again. It only ever
+marks played, never unmarks, only up to the episode you name, and only when the Jellyfin match is
+an exact id match so it cannot touch a whole multi-season series.
 
 **Requesting**
 Resolves an AniList entry to a TMDB id through Jellyseerr, works out which TMDB season the entry maps
@@ -336,6 +352,9 @@ Add to `services.yaml`:
 | `POST /api/sonarr/series/:id/series-type` | Corrects Sonarr's series type |
 | `POST /api/sonarr/missing/:anilistId` | Plans a search for aired episodes that are not on disk. Only searches when the body is `{"confirm":true}` |
 | `POST /api/list/:anilistId` | `{ status, progress, score }`. Requires `ANILIST_ALLOW_WRITES=true` |
+| `POST /api/shoko/rescan/:anilistId/:fileId` | Asks AniDB about an unmatched file again |
+| `POST /api/shoko/link/:anilistId/:fileId` | Links an unmatched file to its AniDB episode |
+| `POST /api/jellyfin/played/:anilistId` | Marks episodes played up to `{ upTo }`. Only searches after `{"confirm":true}` |
 | `GET /api/activity` | Sonarr queue, torrents, recent requests, and per-section errors |
 | `GET /api/homepage` | Flat counters for a dashboard widget |
 

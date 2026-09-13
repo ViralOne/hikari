@@ -38,7 +38,7 @@ export function version() {
 // survives the AniDB-to-TVDB numbering difference, so it is what missing episodes match on.
 export function episodes(seriesId) {
   return cached(`sonarr:episodes:${seriesId}`, 60 * 1000, async () => {
-    const list = await api(`/episode?seriesId=${Number(seriesId)}`);
+    const list = await api(`/episode?seriesId=${Number(seriesId)}&includeEpisodeFile=true`);
     return list.map(item => ({
       id: item.id,
       seasonNumber: item.seasonNumber,
@@ -48,7 +48,11 @@ export function episodes(seriesId) {
       airDate: item.airDate || null,
       airDateUtc: item.airDateUtc || null,
       hasFile: Boolean(item.hasFile),
-      monitored: Boolean(item.monitored)
+      monitored: Boolean(item.monitored),
+      // The relative path is what ties a Sonarr episode to the file Shoko hashed: the two
+      // mount the library at different roots, so only the tail can be compared.
+      relativePath: item.episodeFile?.relativePath || null,
+      size: item.episodeFile?.size ?? null
     }));
   });
 }

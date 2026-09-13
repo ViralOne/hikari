@@ -1,11 +1,17 @@
 import { config, enabled } from "./config.js";
-import { cached } from "./cache.js";
+import { cached, invalidate } from "./cache.js";
 import { request } from "./http.js";
 
-function api(path) {
+function api(path, options = {}) {
   if (!enabled.shoko) throw new Error("Shoko is not configured");
   return request("shoko", `${config.shoko.url}/api/v3${path}`, {
-    headers: { apikey: config.shoko.key, Accept: "application/json" },
+    ...options,
+    headers: {
+      apikey: config.shoko.key,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    },
     timeout: 30000
   });
 }
@@ -94,14 +100,73 @@ export async function infoFor(anime) {
   return { ...entry, via };
 }
 
-// Files on disk that Shoko could not match to an AniDB episode. They are the usual reason a
-// season reads as "missing" while Sonarr and the filesystem both have the file.
-export function unrecognizedCount() {
-  if (!enabled.shoko) return Promise.resolve(null);
-  return cached("shoko:unrecognized", 5 * 60 * 1000, async () => {
-    const body = await api("/File?pageSize=1&include_unrecognized=only");
-    return body.Total ?? (body.List || []).length;
+// Every file Shoko has hashed, with whether it is linked to a series. A file with no cross
+// reference is what Shoko's UI calls unrecognised: it exists, it is hashed, but AniDB never
+// matched it, so it counts as a missing episode even though it is sitting on the disk.
+//
+// There is no server-side filter for "unlinked" — `include` only takes Ignored, MediaInfo,
+// XRefs, AbsolutePaths and ImportLimbo, and an unknown query parameter is silently dropped.
+// An earlier version passed include_unrecognized=only and got the unfiltered total back,
+// which reported every file in the collection as unrecognised.
+export function fileIndex() {
+  if (!enabled.shoko) return Promise.resolve({ total: 0, unlinked: 0, byTail: new Map() });
+
+  return cached("shoko:files:index", 5 * 60 * 1000, async () => {
+    const files = [];
+    for (let page = 1; page <= 40; page += 1) {
+      const body = await api(`/File?pageSize=100&page=${page}&include=XRefs`);
+      const batch = body.List || [];
+      files.push(...batch);
+      if (batch.length < 100) break;
+      if (body.Total != null && files.length >= body.Total) break;
+    }
+
+    const byTail = new Map();
+    let unlinked = 0;
+
+    for (const file of files) {
+      const linked = (file.SeriesIDs || []).length > 0;
+      if (!linked) unlinked += 1;
+
+      for (const location of file.Locations || []) {
+        const tail = pathTail(location.RelativePath);
+        if (tail) byTail.set(tail, { fileId: file.ID, linked, size: file.Size ?? 0, path: location.RelativePath });
+      }
+    }
+
+    return { total: files.length, unlinked, byTail };
   });
+}
+
+// Shoko and Sonarr mount the library at different roots, so only the tail of the path can be
+// compared. Two segments keeps "Season 1/01.mkv" style names from colliding across shows.
+export function pathTail(path) {
+  if (!path) return null;
+  return path
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter(Boolean)
+    .slice(-2)
+    .join("/")
+    .toLowerCase();
+}
+
+// Ask AniDB about the file again. Harmless: it either finds a match or changes nothing.
+export async function rescanFile(fileId) {
+  await api(`/File/${Number(fileId)}/Rescan`, { method: "POST" });
+  invalidate("shoko:");
+  return { rescanned: true };
+}
+
+// The fix when AniDB simply has no record of the release: point the file at the episode by
+// hand. Metadata only — nothing on disk is touched.
+export async function linkFile(fileId, episodeIds) {
+  await api(`/File/${Number(fileId)}/Link`, {
+    method: "POST",
+    body: JSON.stringify({ EpisodeIDs: episodeIds.map(Number) })
+  });
+  invalidate("shoko:");
+  return { linked: episodeIds.length };
 }
 
 // Release group and source per episode. Only worth fetching for a single opened title.
@@ -127,6 +192,9 @@ export function fileDetail(shokoId) {
 
       episodes.push({
         episode: anidb.EpisodeNumber ?? null,
+        // Needed to link a file by hand, which is the only fix when AniDB has no record of
+        // the release.
+        shokoEpisodeId: episode.IDs?.ID ?? null,
         airDate: anidb.AirDate ?? null,
         hasFile: files.length > 0,
         group,

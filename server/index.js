@@ -35,6 +35,8 @@ app.use("/api/*", async (c, next) => {
 app.use("/api/request", requireToken);
 app.use("/api/sonarr/*", requireToken);
 app.use("/api/list/*", requireToken);
+app.use("/api/shoko/*", requireToken);
+app.use("/api/jellyfin/*", requireToken);
 
 async function requireToken(c, next) {
   if (c.req.method === "GET" || !config.token) return next();
@@ -219,12 +221,15 @@ app.get("/api/anime/:id", async c => {
   ]);
 
   const library = await sonarr.findMatch(anime, shokoInfo).catch(() => null);
-  const [movie, listEntry, files, unrecognized] = await Promise.all([
+  const [movie, listEntry, files] = await Promise.all([
     radarr.findMatch(anime, request?.tmdbId).catch(() => null),
     anilistList.entryFor(anime.id).catch(() => null),
-    shokoInfo ? shoko.fileDetail(shokoInfo.shokoId).catch(() => null) : Promise.resolve(null),
-    shokoInfo ? shoko.unrecognizedCount().catch(() => null) : Promise.resolve(null)
+    shokoInfo ? shoko.fileDetail(shokoInfo.shokoId).catch(() => null) : Promise.resolve(null)
   ]);
+
+  // Reconciled here rather than behind a button: "3 missing" on its own sent me looking for a
+  // download that had already happened. Everything it needs is cached by this point.
+  const report = shokoInfo && files?.missing?.length ? await missingReport(id).catch(() => null) : null;
 
   const [routing, watch] = await Promise.all([
     describeRouting(request).catch(() => null),
@@ -237,7 +242,7 @@ app.get("/api/anime/:id", async c => {
     ...anime,
     library,
     movie,
-    shoko: shokoInfo ? { ...shokoInfo, files, unrecognized } : null,
+    shoko: shokoInfo ? { ...shokoInfo, files, report: report?.error ? null : report } : null,
     list: listEntry,
     request,
     routing,
@@ -377,7 +382,15 @@ app.post("/api/sonarr/series/:id/series-type", async c => {
 // episode without a file is reported and left alone rather than guessed at.
 const MAX_SEARCH_EPISODES = 24;
 
-async function planMissingSearch(anilistId) {
+// One row per episode AniDB says exists but Shoko has no file for, each carrying the reason.
+// "Missing" turns out to mean four different things and only one of them is a download:
+//
+//   not-aired            AniDB knows about it, it has not aired
+//   not-downloaded       nothing on disk -> Sonarr can search for it
+//   on-disk-unlinked     Shoko hashed the file but AniDB never matched it -> rescan or link
+//   on-disk-not-hashed   the file exists but Shoko has not seen it -> needs an import scan
+//   unresolved           the air date does not tie to exactly one Sonarr episode
+export async function missingReport(anilistId) {
   const anime = await anilist.byId(anilistId);
   if (!anime) return { error: "not found", status: 404 };
 
@@ -386,76 +399,112 @@ async function planMissingSearch(anilistId) {
     return { error: "Shoko has no entry for this title, so Hikari cannot tell which episodes are missing", status: 409 };
   }
 
-  const [files, library] = await Promise.all([
-    shoko.fileDetail(shokoInfo.shokoId).catch(() => null),
-    sonarr.findMatch(anime, shokoInfo).catch(() => null)
-  ]);
-
-  if (!library) return { error: "This title is not in Sonarr yet, so there is nothing to search", status: 409 };
+  const files = await shoko.fileDetail(shokoInfo.shokoId).catch(() => null);
   if (!files) return { error: "Shoko did not return an episode list", status: 502 };
 
-  const catalogue = await sonarr.episodes(library.id);
-  const today = new Date().toISOString().slice(0, 10);
+  const library = await sonarr.findMatch(anime, shokoInfo).catch(() => null);
+  const [catalogue, fileIndex] = await Promise.all([
+    library ? sonarr.episodes(library.id).catch(() => []) : Promise.resolve([]),
+    shoko.fileIndex().catch(() => ({ total: 0, unlinked: 0, byTail: new Map() }))
+  ]);
 
-  const matched = [];
-  const skipped = [];
+  const today = new Date().toISOString().slice(0, 10);
+  const rows = [];
 
   for (const episode of files.episodes) {
     if (episode.hasFile) continue;
+
+    const row = {
+      episode: episode.episode,
+      shokoEpisodeId: episode.shokoEpisodeId,
+      airDate: episode.airDate,
+      state: "unresolved",
+      detail: null,
+      sonarr: null,
+      shokoFile: null
+    };
+
     if (!episode.airDate) {
-      skipped.push({ episode: episode.episode, code: "no-air-date", reason: "AniDB has no air date for it" });
+      row.detail = "AniDB has no air date for it";
+      rows.push(row);
       continue;
     }
-    if (episode.airDate > today) continue; // not aired, so not missing
+    if (episode.airDate > today) {
+      row.state = "not-aired";
+      rows.push(row);
+      continue;
+    }
 
+    // Air date, not episode number: AniDB numbers a split cour from 1 while Sonarr keeps
+    // TVDB's numbering, so the numbers legitimately disagree.
     const sameDay = catalogue.filter(item => withinADay(item.airDate, episode.airDate));
 
     if (sameDay.length === 0) {
-      skipped.push({
-        episode: episode.episode,
-        airDate: episode.airDate,
-        code: "no-sonarr-episode",
-        reason: "no Sonarr episode airs on that date"
-      });
+      row.detail = library ? "no Sonarr episode airs on that date" : "not in Sonarr";
+      rows.push(row);
       continue;
     }
     if (sameDay.length > 1) {
-      skipped.push({
-        episode: episode.episode,
-        airDate: episode.airDate,
-        code: "ambiguous",
-        reason: `${sameDay.length} Sonarr episodes share that air date, so the match is ambiguous`
-      });
-      continue;
-    }
-    // The common case, and not a download problem at all: the file exists and Shoko simply
-    // never matched it to an AniDB episode.
-    if (sameDay[0].hasFile) {
-      skipped.push({
-        episode: episode.episode,
-        airDate: episode.airDate,
-        code: "already-on-disk",
-        reason: `Sonarr already has S${sameDay[0].seasonNumber}E${sameDay[0].episodeNumber}`
-      });
+      row.detail = `${sameDay.length} Sonarr episodes share that air date, so the match is ambiguous`;
+      rows.push(row);
       continue;
     }
 
-    matched.push({
-      anidbEpisode: episode.episode,
-      airDate: episode.airDate,
-      id: sameDay[0].id,
-      seasonNumber: sameDay[0].seasonNumber,
-      episodeNumber: sameDay[0].episodeNumber,
-      title: sameDay[0].title,
-      monitored: sameDay[0].monitored
-    });
+    const match = sameDay[0];
+    row.sonarr = {
+      id: match.id,
+      seasonNumber: match.seasonNumber,
+      episodeNumber: match.episodeNumber,
+      title: match.title,
+      hasFile: match.hasFile,
+      monitored: match.monitored,
+      size: match.size,
+      relativePath: match.relativePath
+    };
+
+    if (!match.hasFile) {
+      row.state = "not-downloaded";
+      rows.push(row);
+      continue;
+    }
+
+    const known = fileIndex.byTail.get(shoko.pathTail(match.relativePath));
+    if (known && !known.linked) {
+      row.state = "on-disk-unlinked";
+      row.shokoFile = { fileId: known.fileId, size: known.size, path: known.path };
+    } else if (known && known.linked) {
+      // Shoko has the file and considers it linked, yet not to this episode. Left alone.
+      row.detail = "Shoko has this file linked to a different episode";
+      row.shokoFile = { fileId: known.fileId, size: known.size, path: known.path };
+    } else {
+      row.state = "on-disk-not-hashed";
+    }
+    rows.push(row);
   }
 
+  const searchable = rows.filter(row => row.state === "not-downloaded");
+
   return {
-    series: { id: library.id, title: library.title, via: library.via },
-    matched: matched.slice(0, MAX_SEARCH_EPISODES),
-    truncated: matched.length > MAX_SEARCH_EPISODES,
-    skipped
+    series: library ? { id: library.id, title: library.title, via: library.via } : null,
+    collection: { files: fileIndex.total, unlinked: fileIndex.unlinked },
+    rows,
+    counts: {
+      notAired: rows.filter(row => row.state === "not-aired").length,
+      notDownloaded: searchable.length,
+      onDiskUnlinked: rows.filter(row => row.state === "on-disk-unlinked").length,
+      onDiskNotHashed: rows.filter(row => row.state === "on-disk-not-hashed").length,
+      unresolved: rows.filter(row => row.state === "unresolved").length
+    },
+    matched: searchable.slice(0, MAX_SEARCH_EPISODES).map(row => ({
+      anidbEpisode: row.episode,
+      airDate: row.airDate,
+      id: row.sonarr.id,
+      seasonNumber: row.sonarr.seasonNumber,
+      episodeNumber: row.sonarr.episodeNumber,
+      title: row.sonarr.title,
+      monitored: row.sonarr.monitored
+    })),
+    truncated: searchable.length > MAX_SEARCH_EPISODES
   };
 }
 
@@ -472,7 +521,7 @@ app.post("/api/sonarr/missing/:anilistId", async c => {
   }
 
   const body = await c.req.json().catch(() => ({}));
-  const plan = await planMissingSearch(anilistId);
+  const plan = await missingReport(anilistId);
   if (plan.error) return c.json({ error: plan.error }, plan.status);
 
   // The browser never sends episode ids: it asks for a plan, shows it, then confirms. That
@@ -488,6 +537,104 @@ app.post("/api/sonarr/missing/:anilistId", async c => {
 
   console.log(`[hikari] sonarr search for ${ids.length} episode(s) of ${plan.series.title}: ${ids.join(",")}`);
   return c.json({ ...plan, executed: true, monitored: monitored.changed, command });
+});
+
+// Shoko repair. Both routes take the AniList id as well as the file, and re-derive the report
+// server-side, so a stale tab or a hand-rolled call cannot link an arbitrary file to an
+// arbitrary episode.
+async function repairTarget(anilistId, fileId) {
+  const report = await missingReport(anilistId);
+  if (report.error) return { error: report.error, status: report.status };
+
+  const row = report.rows.find(item => item.shokoFile?.fileId === Number(fileId));
+  if (!row) {
+    return { error: "That file is not one of this title's unmatched episodes", status: 409 };
+  }
+  return { row };
+}
+
+app.post("/api/shoko/rescan/:anilistId/:fileId", async c => {
+  const target = await repairTarget(Number(c.req.param("anilistId")), Number(c.req.param("fileId")));
+  if (target.error) return c.json({ error: target.error }, target.status);
+
+  const result = await shoko.rescanFile(target.row.shokoFile.fileId);
+  return c.json({ ok: true, episode: target.row.episode, ...result });
+});
+
+app.post("/api/shoko/link/:anilistId/:fileId", async c => {
+  const target = await repairTarget(Number(c.req.param("anilistId")), Number(c.req.param("fileId")));
+  if (target.error) return c.json({ error: target.error }, target.status);
+
+  const { row } = target;
+  if (!row.shokoEpisodeId) {
+    return c.json({ error: "Shoko did not report an episode id to link this file to" }, 409);
+  }
+
+  const result = await shoko.linkFile(row.shokoFile.fileId, [row.shokoEpisodeId]);
+  console.log(`[hikari] linked shoko file ${row.shokoFile.fileId} to episode ${row.shokoEpisodeId} (ep ${row.episode})`);
+  return c.json({ ok: true, episode: row.episode, ...result });
+});
+
+// Repairs Jellyfin's watch state from AniList. A Shokofin VFS rebuild creates new item ids and
+// Jellyfin keys played flags to item ids, so a rebuild silently orphans the whole history —
+// which is why a season watched to episode 8 reads as 0 of 14.
+//
+// Only ever marks episodes played, never unmarks, and only up to the episode you name.
+app.post("/api/jellyfin/played/:anilistId", async c => {
+  const anilistId = Number(c.req.param("anilistId"));
+  if (!Number.isInteger(anilistId) || anilistId <= 0) {
+    return c.json({ error: "anilistId must be a positive integer" }, 400);
+  }
+  if (!enabled.jellyfin) return c.json({ error: "Jellyfin is not configured" }, 503);
+
+  const body = await c.req.json().catch(() => ({}));
+  const anime = await anilist.byId(anilistId);
+  if (!anime) return c.json({ error: "not found" }, 404);
+
+  const shokoInfo = await shoko.infoFor(anime).catch(() => null);
+  const library = await sonarr.findMatch(anime, shokoInfo).catch(() => null);
+  const watch = await jellyfin.progressFor(anime, library, shokoInfo).catch(() => null);
+
+  if (!watch) return c.json({ error: "No Jellyfin item matches this title" }, 409);
+  // A tvdb, path or title match can be a whole multi-season series, and marking "the first 8
+  // episodes" of that is not the same thing at all.
+  if (!watch.scoped) {
+    return c.json(
+      { error: `The Jellyfin match is by ${watch.via}, which can cover more than this entry, so this is refused` },
+      409
+    );
+  }
+
+  const listEntry = await anilistList.entryFor(anilistId).catch(() => null);
+  const requested = body.upTo ?? listEntry?.progress ?? null;
+  if (!Number.isInteger(requested) || requested <= 0) {
+    return c.json({ error: "upTo must be a positive integer, or AniList must have progress to copy" }, 400);
+  }
+
+  const items = await jellyfin.episodeItems(watch.ids);
+  if (items.length === 0) return c.json({ error: "Jellyfin lists no episodes for this item" }, 409);
+
+  // Counted by position, not episode number: absolute numbering, split cours and missing files
+  // all make "episode 8" ambiguous, while "the first 8 of this item" is not.
+  const upTo = Math.min(requested, items.length);
+  const target = items.slice(0, upTo).filter(item => !item.played);
+
+  const plan = {
+    item: watch.name,
+    via: watch.via,
+    upTo,
+    total: items.length,
+    alreadyPlayed: upTo - target.length,
+    episodes: target.map(item => ({ id: item.id, season: item.season, episode: item.episode, name: item.name }))
+  };
+
+  if (body.confirm !== true) return c.json({ ...plan, planned: true, executed: false });
+  if (target.length === 0) return c.json({ ...plan, executed: false, error: "nothing left to mark" }, 409);
+
+  for (const item of target) await jellyfin.markPlayed(item.id);
+
+  console.log(`[hikari] marked ${target.length} episode(s) played in Jellyfin for ${watch.name}`);
+  return c.json({ ...plan, executed: true, marked: target.length });
 });
 
 app.get("/api/activity", async c => {

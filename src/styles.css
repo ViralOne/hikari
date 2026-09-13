@@ -1063,9 +1063,46 @@ select.field {
 .plan-row {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px 8px;
   font-size: 12.5px;
   font-variant-numeric: tabular-nums;
+}
+
+.plan-ep {
+  flex: none;
+  font-weight: 560;
+}
+
+.plan-state {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--border-hi);
+  color: var(--text-dim);
+  background: var(--surface);
+}
+
+.plan-state.not-downloaded {
+  color: #ffdcae;
+  border-color: rgba(255, 180, 84, 0.32);
+}
+
+.plan-state.on-disk-unlinked,
+.plan-state.on-disk-not-hashed {
+  color: #a8d8ff;
+  border-color: rgba(96, 165, 250, 0.32);
+}
+
+.plan-state.not-aired {
+  color: var(--text-faint);
+}
+
+.plan-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+  flex: none;
 }
 
 .plan-row > .dim {

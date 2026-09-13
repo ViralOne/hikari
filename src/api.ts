@@ -121,8 +121,47 @@ export type ShokoInfo = {
     groups: Array<{ name: string; count: number }>;
     mixedGroups: boolean;
   } | null;
-  /** Files on disk Shoko could not match to AniDB, across the whole collection. */
-  unrecognized?: number | null;
+  report?: MissingReport | null;
+};
+
+export type MissingRowState =
+  | "not-aired"
+  | "not-downloaded"
+  | "on-disk-unlinked"
+  | "on-disk-not-hashed"
+  | "unresolved";
+
+export type MissingRow = {
+  episode: number | null;
+  shokoEpisodeId: number | null;
+  airDate: string | null;
+  state: MissingRowState;
+  detail: string | null;
+  sonarr: {
+    id: number;
+    seasonNumber: number;
+    episodeNumber: number;
+    title: string | null;
+    hasFile: boolean;
+    monitored: boolean;
+    size: number | null;
+    relativePath: string | null;
+  } | null;
+  shokoFile: { fileId: number; size: number; path: string } | null;
+};
+
+export type MissingReport = {
+  series: { id: number; title: string; via?: string | null } | null;
+  /** Whole-collection totals, so "unlinked" can be put in context. */
+  collection: { files: number; unlinked: number };
+  rows: MissingRow[];
+  counts: {
+    notAired: number;
+    notDownloaded: number;
+    onDiskUnlinked: number;
+    onDiskNotHashed: number;
+    unresolved: number;
+  };
 };
 
 export type Routing = {
@@ -277,6 +316,41 @@ export function saveListEntry(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
+  });
+}
+
+export function rescanShokoFile(anilistId: number, fileId: number) {
+  return json<{ ok: true; episode: number | null; rescanned: boolean }>(
+    `/api/shoko/rescan/${anilistId}/${fileId}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }
+  );
+}
+
+export function linkShokoFile(anilistId: number, fileId: number) {
+  return json<{ ok: true; episode: number | null; linked: number }>(
+    `/api/shoko/link/${anilistId}/${fileId}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }
+  );
+}
+
+export type PlayedPlan = {
+  item: string;
+  via: string;
+  upTo: number;
+  total: number;
+  alreadyPlayed: number;
+  episodes: Array<{ id: string; season: number | null; episode: number | null; name: string }>;
+  planned?: boolean;
+  executed: boolean;
+  marked?: number;
+};
+
+/** Without `confirm` this only reads: it returns the episodes it would mark played. */
+export function markJellyfinPlayed(anilistId: number, upTo?: number, confirm = false) {
+  return json<PlayedPlan>(`/api/jellyfin/played/${anilistId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ upTo, confirm })
   });
 }
 
