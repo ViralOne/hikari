@@ -101,7 +101,16 @@ export function Settings(props: { welcome: boolean; token: number; onSaved: () =
       setTick(value => value + 1);
       props.onSaved();
     } catch (err) {
-      setOutcome({ ok: false, message: err instanceof Error ? err.message : String(err) });
+      const message = err instanceof Error ? err.message : String(err);
+      setOutcome({
+        ok: false,
+        // The built-in UI cannot send the shared secret, so this is the one failure that needs
+        // explaining rather than repeating.
+        message:
+          message === "unauthorized"
+            ? "HIKARI_TOKEN is set, so this screen cannot save. Configure with environment variables, or unset the token and put authentication in your reverse proxy instead."
+            : message
+      });
     } finally {
       setBusy(false);
     }
@@ -188,7 +197,7 @@ export function Settings(props: { welcome: boolean; token: number; onSaved: () =
 
                 <Show when={settled(tests()[group.id])}>
                   {result => (
-                    <div class={["notice", result().ok ? "ok" : "bad"]}>
+                    <div class={["notice", result().ok ? "ok" : "bad"]} role="status" aria-live="polite">
                       {result().ok
                         ? `Reachable — ${result().detail}`
                         : `Could not connect — ${result().error}`}
@@ -196,45 +205,53 @@ export function Settings(props: { welcome: boolean; token: number; onSaved: () =
                   )}
                 </Show>
 
-                <For each={fieldsFor(group.id)}>
+                {/* Keyed by field name, not identity. Every save refetches and JSON gives back
+                    brand new objects, so the default identity keying tore down and rebuilt the
+                    whole form — losing focus and anything half-typed in a field you had not
+                    touched. A custom key hands the callback an accessor. */}
+                <For each={fieldsFor(group.id)} keyed={field => field.key}>
                   {field => (
-                    <div class={["setup-field", { switch: field.type === "boolean" }]}>
-                      <label class="setup-label" for={`set-${field.key}`}>
-                        <span>{field.label}</span>
-                        <Show when={field.source === "env"}>
-                          <span class="setup-source" title={`Currently coming from ${field.env}`}>
-                            from {field.env}
+                    <div class={["setup-field", { switch: field().type === "boolean" }]}>
+                      <label class="setup-label" for={`set-${field().key}`}>
+                        <span>{field().label}</span>
+                        <Show when={field().source === "env"}>
+                          <span class="setup-source" title={`Currently coming from ${field().env}`}>
+                            from {field().env}
                           </span>
                         </Show>
-                        <Show when={field.hint}>
-                          <span class="setup-hint">{field.hint}</span>
+                        <Show when={field().hint}>
+                          <span class="setup-hint">{field().hint}</span>
                         </Show>
                       </label>
 
                       <Show
-                        when={field.type !== "boolean"}
+                        when={field().type !== "boolean"}
                         fallback={
                           <input
-                            id={`set-${field.key}`}
+                            id={`set-${field().key}`}
                             type="checkbox"
-                            checked={Boolean(current(field))}
-                            onChange={event => edit(field.key, event.currentTarget.checked)}
+                            checked={Boolean(current(field()))}
+                            onChange={event => edit(field().key, event.currentTarget.checked)}
                           />
                         }
                       >
                         <input
-                          id={`set-${field.key}`}
+                          id={`set-${field().key}`}
                           class="field"
-                          type={field.type === "secret" ? "password" : field.type === "number" ? "number" : "text"}
-                          min={field.min ?? undefined}
-                          max={field.max ?? undefined}
+                          type={
+                            field().type === "secret" ? "password" : field().type === "number" ? "number" : "text"
+                          }
+                          min={field().min ?? undefined}
+                          max={field().max ?? undefined}
                           autocomplete="off"
                           spellcheck={false}
                           placeholder={
-                            field.type === "secret" ? (field.preview ?? "not set") : (field.placeholder ?? "")
+                            field().type === "secret"
+                              ? (field().preview ?? "not set")
+                              : (field().placeholder ?? "")
                           }
-                          value={String(current(field))}
-                          onInput={event => edit(field.key, event.currentTarget.value)}
+                          value={String(current(field()))}
+                          onInput={event => edit(field().key, event.currentTarget.value)}
                         />
                       </Show>
                     </div>

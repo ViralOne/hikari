@@ -1,5 +1,19 @@
 const trim = (v, fallback = "") => (v ?? fallback).toString().trim().replace(/\/+$/, "");
 
+// The settings UI validates numbers; the environment does not. AUTO_LINK_INTERVAL_MINUTES=60m
+// parsed as NaN, and setInterval(fn, NaN) fires about every millisecond, so a typo turned the
+// sweep into a busy loop against Shoko.
+const num = (raw, fallback, min, max) => {
+  const value = Number(raw);
+  if (!Number.isFinite(value)) {
+    if (raw !== undefined && String(raw).trim() !== "") {
+      console.warn(`[hikari] ignoring "${raw}" as a number, using ${fallback}`);
+    }
+    return fallback;
+  }
+  return Math.min(Math.max(Math.round(value), min), max);
+};
+
 export const config = {
   port: Number(process.env.PORT || 7997),
   host: (process.env.HOST || "0.0.0.0").trim(),
@@ -48,11 +62,11 @@ export const config = {
   // because it writes to Shoko on its own.
   autoLink: {
     enabled: /^(1|true|yes)$/i.test((process.env.AUTO_LINK || "").trim()),
-    intervalMinutes: Number(process.env.AUTO_LINK_INTERVAL_MINUTES || 60),
+    intervalMinutes: num(process.env.AUTO_LINK_INTERVAL_MINUTES, 60, 5, 1440),
     // How long a file is left for AniDB before Hikari links it by hand. An AniDB match brings
     // metadata a hand link does not, and unregistered releases are often added within a day.
-    graceHours: Number(process.env.AUTO_LINK_GRACE_HOURS || 6),
-    maxPerRun: Number(process.env.AUTO_LINK_MAX_PER_RUN || 20)
+    graceHours: num(process.env.AUTO_LINK_GRACE_HOURS, 6, 0, 168),
+    maxPerRun: num(process.env.AUTO_LINK_MAX_PER_RUN, 20, 1, 200)
   }
 };
 

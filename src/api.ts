@@ -257,6 +257,10 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
     const message = (body && (body as { error?: string }).error) || `${res.status} ${res.statusText}`;
     throw new Error(message);
   }
+  // A 200 whose body is not JSON used to be cast to T and returned as null, which then blew up
+  // deep inside a render as "cannot read properties of null" rather than as a failed request.
+  // A reverse proxy answering with an HTML error page is the usual way this happens.
+  if (body === null) throw new Error(`${path} returned a response that was not JSON`);
   return body as T;
 }
 

@@ -173,7 +173,7 @@ export function App() {
 
         {/* Hidden until something is configured: every one of these views would only be able to
             show an error, and offering them as the first thing you see is a bad welcome. */}
-        <Show when={configured() !== false}>
+        <Show when={configured() === true}>
           <div class="nav">
             <NavButtons view={view()} onSelect={pick} itemClass="nav-item" />
           </div>
@@ -218,6 +218,13 @@ export function App() {
           )}
         >
           <Switch>
+            {/* Held until the answer is known. Falling through to Discover in the meantime meant a
+                fresh install fired a screenful of failing requests before the setup screen won. */}
+            <Match when={configured() === null}>
+              <div class="section">
+                <div class="skeleton" style={{ height: "320px" }} />
+              </div>
+            </Match>
             {/* A fresh install lands here, and cannot leave until at least one service answers. */}
             <Match when={configured() === false || view() === "settings"}>
               <Settings
@@ -250,7 +257,7 @@ export function App() {
         </Errored>
       </main>
 
-      <Show when={configured() !== false}>
+      <Show when={configured() === true}>
         <nav class="tabbar" aria-label="Sections">
           <NavButtons view={view()} onSelect={pick} itemClass="tab" />
         </nav>

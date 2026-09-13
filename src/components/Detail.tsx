@@ -38,6 +38,7 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
   const [drafts, setDrafts] = createSignal<Record<number, number>>({});
   const [plans, setPlans] = createSignal<Record<number, MissingSearchPlan>>({});
   const [played, setPlayed] = createSignal<Record<number, PlayedPlan>>({});
+  let followUp: ReturnType<typeof setTimeout> | undefined;
 
   const defaultSelection = (seasons: SeasonInfo[] | null | undefined, suggested: number | null | undefined): Selection => {
     if (!seasons || seasons.length === 0) return "all";
@@ -293,8 +294,9 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
       }));
 
       props.onRequested();
-      // Jellyseerr updates mediaInfo a beat after the POST returns.
-      setTimeout(() => props.onRequested(), 2500);
+      // Jellyseerr updates mediaInfo a beat after the POST returns. Tracked so closing the panel
+      // cancels it rather than leaving a timer pointed at an unmounted component's callback.
+      followUp = setTimeout(() => props.onRequested(), 2500);
     } catch (err) {
       setOutcomes(prev => ({
         ...prev,
@@ -342,6 +344,7 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
+      if (followUp) clearTimeout(followUp);
       opener?.focus?.();
     };
   });
@@ -690,9 +693,12 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                               value={draftProgress(entry().progress)}
                               onInput={event => {
                                 // An empty field parses as 0, which would silently offer to wipe
-                                // real progress on the account.
-                                if (event.currentTarget.value === "") return;
-                                setDraft(Number(event.currentTarget.value), entry().total);
+                                // real progress on the account. Pasted text parses as NaN, which
+                                // survives the clamp and makes Save look enabled while sending a
+                                // progress value JSON turns into null.
+                                const parsed = Number(event.currentTarget.value);
+                                if (event.currentTarget.value === "" || !Number.isFinite(parsed)) return;
+                                setDraft(parsed, entry().total);
                               }}
                             />
                             <button
@@ -1136,33 +1142,36 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                               </Show>
 
                               <div class="season-list">
-                                <For each={request().seasons ?? []}>
+                                {/* Keyed by season number. Requesting refetches the detail twice
+                                    within a few seconds, and identity keying rebuilt every
+                                    checkbox, dropping focus mid-selection. With a custom key the
+                                    item is an accessor, so it has to be read in JSX or a memo
+                                    rather than hoisted to a local. */}
+                                <For each={request().seasons ?? []} keyed={season => season.seasonNumber}>
                                   {season => {
-                                    const done = season.taken;
-                                    const picked = createMemo(() => submittable().includes(season.seasonNumber));
+                                    const done = createMemo(() => season().taken);
+                                    const picked = createMemo(() => submittable().includes(season().seasonNumber));
                                     return (
-                                      <label
-                                        class={["season", { picked: picked() && !done, done }]}
-                                      >
+                                      <label class={["season", { picked: picked() && !done(), done: done() }]}>
                                         <input
                                           type="checkbox"
                                           checked={picked()}
-                                          disabled={done}
+                                          disabled={done()}
                                           onChange={() =>
                                             toggleSeason(
-                                              season.seasonNumber,
+                                              season().seasonNumber,
                                               selection(),
                                               (request().seasons ?? []).map(s => s.seasonNumber)
                                             )
                                           }
                                         />
-                                        <span class="season-name">Season {season.seasonNumber}</span>
+                                        <span class="season-name">Season {season().seasonNumber}</span>
                                         <span class="season-meta">
-                                          {season.episodeCount} ep
-                                          <Show when={season.airDate}>{date => <> · {date()}</>}</Show>
-                                          <Show when={done}>
+                                          {season().episodeCount} ep
+                                          <Show when={season().airDate}>{date => <> · {date()}</>}</Show>
+                                          <Show when={done()}>
                                             {" · "}
-                                            {season.status}
+                                            {season().status}
                                           </Show>
                                         </span>
                                       </label>

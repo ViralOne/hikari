@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { serve } from "@hono/node-server";
@@ -47,7 +48,11 @@ app.use("/api/settings", requireToken);
 app.use("/api/settings/*", requireToken);
 
 async function requireToken(c, next) {
-  if (c.req.method === "GET" || !config.token) return next();
+  if (!config.token) return next();
+  // Reads are exempt except for the settings, which describe every service address, the
+  // qBittorrent username and the last four characters of every key. That is a network map, not
+  // an anime catalogue.
+  if (c.req.method === "GET" && !c.req.path.startsWith("/api/settings")) return next();
 
   // A query token is accepted on the webhook only, because Sonarr's Connect cannot send custom
   // headers. Everywhere else it would just be a token in your access logs and Referer headers
@@ -55,8 +60,15 @@ async function requireToken(c, next) {
   const fromQuery = c.req.path.startsWith("/api/hooks/") ? c.req.query("token") : undefined;
   const provided =
     c.req.header("authorization")?.replace(/^Bearer\s+/i, "") || c.req.header("x-hikari-token") || fromQuery;
-  if (provided !== config.token) return c.json({ error: "unauthorized" }, 401);
+  if (!sameSecret(provided, config.token)) return c.json({ error: "unauthorized" }, 401);
   return next();
+}
+
+// Length is compared first because timingSafeEqual throws on a mismatch, and the length of a
+// shared secret is not what anyone is trying to keep quiet.
+function sameSecret(provided, expected) {
+  if (typeof provided !== "string" || provided.length !== expected.length) return false;
+  return timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
 }
 
 app.onError((err, c) => {
@@ -553,7 +565,12 @@ async function repairTarget(anilistId, fileId) {
   const report = await missingReport(anilistId);
   if (report.error) return { error: report.error, status: report.status };
 
-  const row = report.rows.find(item => item.shokoFile?.fileId === Number(fileId));
+  // The state matters, not just the file: missingReport also attaches shokoFile to rows it
+  // deliberately left alone because Shoko has that file linked to a different episode. Without
+  // this check a hand-rolled call would steal the file from that episode.
+  const row = report.rows.find(
+    item => item.state === "on-disk-unlinked" && item.shokoFile?.fileId === Number(fileId)
+  );
   if (!row) {
     return { error: "That file is not one of this title's unmatched episodes", status: 409 };
   }
@@ -577,12 +594,20 @@ app.post("/api/settings", async c => {
 app.post("/api/settings/test", async c => {
   const body = await c.req.json().catch(() => ({}));
   const service = String(body.service || "");
+  const submitted = String(body.url || "").replace(/\/+$/, "");
+  const stored = Object.hasOwn(config, service) ? (config[service] ?? {}) : {};
+  const storedUrl = String(stored.url || "");
 
-  // Falls back to what is already stored, so Test works for a service you configured earlier
-  // without making you paste the key again just to check it.
-  const stored = config[service === "jellyseerr" ? "jellyseerr" : service] ?? {};
-  const url = String(body.url || stored.url || "").replace(/\/+$/, "");
-  const key = String(body.key || stored.key || "");
+  // The stored key is only ever sent to the stored URL. Falling back to it for any submitted
+  // address turned this route into a key exfiltration primitive: POST a URL you control and
+  // Hikari hands over the real API key in a header, one service at a time.
+  const sameTarget = !submitted || submitted === storedUrl;
+  if (!sameTarget && !body.key) {
+    return c.json({ ok: false, error: "testing a different URL needs its own key" }, 400);
+  }
+
+  const url = submitted || storedUrl;
+  const key = String(body.key || (sameTarget ? stored.key : "") || "");
 
   const probes = {
     jellyseerr: { path: "/api/v1/status", headers: { "X-Api-Key": key }, version: b => `v${b.version}` },
@@ -596,9 +621,19 @@ app.post("/api/settings/test", async c => {
     shoko: { path: "/api/v3/Init/Status", headers: { apikey: key }, version: b => b.State || "reachable" }
   };
 
-  const probe = probes[service];
+  // hasOwn, not a plain lookup: probes.constructor is truthy and would have sent a request to
+  // `${url}undefined` on any host the caller named.
+  const probe = Object.hasOwn(probes, service) ? probes[service] : null;
   if (!probe) return c.json({ error: `cannot test ${service || "an unnamed service"}` }, 400);
   if (!url) return c.json({ ok: false, error: "a URL is required" }, 400);
+
+  // Same validation the persisted values get, so this route cannot reach somewhere a saved
+  // setting could not.
+  try {
+    settings.coerce({ key: "url", type: "url" }, url);
+  } catch (err) {
+    return c.json({ ok: false, error: err.message.replace(/^url /, "") }, 400);
+  }
 
   try {
     const body2 = await request(service, `${url}${probe.path}`, {
@@ -767,10 +802,21 @@ app.post("/api/jellyfin/played/:anilistId", async c => {
   if (body.confirm !== true) return c.json({ ...plan, planned: true, executed: false });
   if (target.length === 0) return c.json({ ...plan, executed: false, error: "nothing left to mark" }, 409);
 
-  for (const item of target) await jellyfin.markPlayed(item.id);
+  // Per item, because failing on episode 5 of 8 used to throw away the fact that 4 were already
+  // marked and report nothing but a 502.
+  const marked = [];
+  const failed = [];
+  for (const item of target) {
+    try {
+      await jellyfin.markPlayed(item.id);
+      marked.push(item.episode);
+    } catch (err) {
+      failed.push({ episode: item.episode, error: err.message });
+    }
+  }
 
-  console.log(`[hikari] marked ${target.length} episode(s) played in Jellyfin for ${watch.name}`);
-  return c.json({ ...plan, executed: true, marked: target.length });
+  console.log(`[hikari] marked ${marked.length} episode(s) played in Jellyfin for ${watch.name}`);
+  return c.json({ ...plan, executed: true, marked: marked.length, failed });
 });
 
 app.get("/api/activity", async c => {

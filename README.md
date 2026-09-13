@@ -287,6 +287,17 @@ through a reverse proxy on the same machine.
 Sonarr's webhook cannot send custom headers, so `/api/hooks/sonarr` also accepts the token as
 `?token=...`. That is the only route that does, because a token in a URL ends up in access logs.
 
+**Settings write access is worth guarding.** Anyone who can save settings can point a service URL
+at a host they control, and Hikari would then send that service's stored key there on its next
+poll — without ever reading the key back. Two things limit that: changing a URL is refused unless
+the matching key is supplied in the same save, and `GET /api/settings` requires the token when one
+is set, because it describes every service address and the last four characters of every key.
+
+Note the trade-off: **the built-in UI cannot send the token**, so with `HIKARI_TOKEN` set the
+settings screen becomes read-only and configuration has to come from environment variables. If you
+want both a protected port and browser setup, put authentication in your reverse proxy and leave
+`HIKARI_TOKEN` unset.
+
 `HIKARI_TOKEN` makes the state-changing endpoints require `Authorization: Bearer <token>`. Be aware
 of the trade-off: **the built-in web UI does not send this header**, so setting it turns the browser
 into a read-only client and only scripted callers can request or update anything. If you need both a

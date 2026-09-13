@@ -110,13 +110,22 @@ export class SettingsError extends Error {
 // Values arrive from a browser, so every one is validated before it can reach an outbound
 // request. A URL that is not a URL would otherwise surface as a confusing fetch failure much
 // later, and a NaN interval would spin the sweep timer.
-function coerce(field, raw) {
+const MAX_LENGTH = 2048;
+
+export function coerce(field, raw) {
   if (raw === null || raw === undefined) return null;
 
   // An empty field means "stop overriding this", for every type. Number("") is 0, so without
   // this a cleared grace period became 0 hours — which is not "unset", it is "link brand new
   // files before AniDB has had any chance to match them".
   if (typeof raw === "string" && raw.trim() === "") return null;
+
+  if (typeof raw === "string") {
+    if (raw.length > MAX_LENGTH) throw new SettingsError(`${field.key} is too long`);
+    // Checked before the type switch: the URL parser strips CR and LF before parsing, so
+    // "http://host:8989\r\nX-Evil: 1" used to validate and then be stored verbatim.
+    if (/[\r\n\t]/.test(raw)) throw new SettingsError(`${field.key} must not contain line breaks`);
+  }
 
   if (field.type === "boolean") {
     if (typeof raw === "boolean") return raw;
@@ -145,13 +154,29 @@ function coerce(field, raw) {
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       throw new SettingsError(`${field.key} must be http or https`);
     }
+    // 169.254.0.0/16 carries the cloud metadata service, which is never a media server and is
+    // the classic target when a URL field can be pointed anywhere. Loopback and private ranges
+    // are deliberately allowed: they are where a self-hosted stack actually lives.
+    if (/^169\.254\./.test(parsed.hostname)) {
+      throw new SettingsError(`${field.key} must not point at the link-local range`);
+    }
     return text.replace(/\/+$/, "");
   }
 
-  // Secrets and free text: a stray newline from a copy and paste breaks a header.
-  if (/[\r\n]/.test(text)) throw new SettingsError(`${field.key} must not contain line breaks`);
   return text;
 }
+
+// Which secret travels to which URL. Changing an address without supplying the matching secret
+// is refused, because otherwise repointing a URL is enough to have the server deliver a stored
+// key to an address of your choosing on its next poll — no need to ever read the key back.
+const SECRET_FOR_URL = new Map([
+  ["jellyseerr.url", "jellyseerr.key"],
+  ["sonarr.url", "sonarr.key"],
+  ["radarr.url", "radarr.key"],
+  ["jellyfin.url", "jellyfin.key"],
+  ["shoko.url", "shoko.key"],
+  ["qbit.url", "qbit.pass"]
+]);
 
 // What the environment and the built-in defaults said, captured before anything is applied.
 // Without it, clearing a field left the last saved value in `config` until a restart while the
@@ -201,14 +226,28 @@ export function update(patch) {
   const unknown = Object.keys(patch).filter(key => !BY_KEY.has(key));
   if (unknown.length) throw new SettingsError(`unknown setting${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}`);
 
-  const changed = [];
-  for (const [key, raw] of Object.entries(patch)) {
-    const field = BY_KEY.get(key);
-    const value = coerce(field, raw);
+  // Validated in full before anything is written. Coercing straight into `overrides` left the
+  // values from before a mid-loop rejection sitting in memory, to be persisted silently by the
+  // next unrelated save and absent from `changed`.
+  const staged = Object.entries(patch).map(([key, raw]) => [key, coerce(BY_KEY.get(key), raw)]);
 
-    // An empty string means "stop overriding this", which is how you hand a field back to the
-    // environment. Deleting rather than storing "" is what makes that work.
-    if (value === "" || value === null) {
+  for (const [key, value] of staged) {
+    const secretKey = SECRET_FOR_URL.get(key);
+    if (!secretKey || value === null) continue;
+    if (value === read(config, key)) continue;
+    // A blank secret is fine: there is nothing to leak. One that is set has to be re-entered.
+    if (!read(config, secretKey)) continue;
+    if (staged.some(([other, otherValue]) => other === secretKey && otherValue !== null)) continue;
+
+    throw new SettingsError(
+      `changing ${key} also needs ${secretKey} in the same save, so a stored secret is never sent to a new address`
+    );
+  }
+
+  const changed = [];
+  for (const [key, value] of staged) {
+    // Null means "stop overriding this", which is how a field is handed back to the environment.
+    if (value === null) {
       if (read(overrides, key) !== undefined) {
         write(overrides, key, undefined);
         changed.push(key);

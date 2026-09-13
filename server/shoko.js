@@ -127,6 +127,9 @@ export function fileIndex() {
 
     const byTail = new Map();
     const unlinkedFiles = [];
+    // One entry per file, not per location: a file with two locations was counted twice, which
+    // inflated the number shown in the panel and put a duplicate in the sweep's candidate list.
+    const counted = new Set();
 
     for (const file of files) {
       const linked = (file.SeriesIDs || []).length > 0;
@@ -143,7 +146,10 @@ export function fileIndex() {
         };
         const tail = pathTail(location.RelativePath);
         if (tail) byTail.set(tail, entry);
-        if (!linked) unlinkedFiles.push(entry);
+        if (!linked && !counted.has(file.ID)) {
+          counted.add(file.ID);
+          unlinkedFiles.push(entry);
+        }
       }
     }
 

@@ -283,7 +283,14 @@ export function stop() {
 }
 
 // Settings can turn the sweep on, off, or change its interval while the server is running.
+// Only the interval is rebuilt: a sweep already scheduled by a Sonarr import is left alone,
+// because saving an unrelated setting used to cancel it and nothing rescheduled it.
 export function restart() {
-  stop();
+  if (timer) clearInterval(timer);
+  timer = null;
+  if (!config.autoLink.enabled && pending) {
+    clearTimeout(pending);
+    pending = null;
+  }
   start();
 }

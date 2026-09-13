@@ -1084,7 +1084,13 @@ select.field {
 .setup-group-head {
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+}
+
+/* "Test connection" broke across two lines next to the badges on a narrow screen. */
+.setup-group-head .btn {
+  white-space: nowrap;
 }
 
 .setup-group-title {
