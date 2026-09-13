@@ -336,6 +336,13 @@ export function rescanShokoFile(anilistId: number, fileId: number) {
   );
 }
 
+export function linkAllShokoFiles(anilistId: number) {
+  return json<{ ok: boolean; linked: Array<number | null>; failed: Array<{ episode: number | null; error: string }> }>(
+    `/api/shoko/link-all/${anilistId}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }
+  );
+}
+
 export function linkShokoFile(anilistId: number, fileId: number) {
   return json<{ ok: true; episode: number | null; linked: number }>(
     `/api/shoko/link/${anilistId}/${fileId}`,

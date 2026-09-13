@@ -573,6 +573,38 @@ app.post("/api/shoko/rescan/:anilistId/:fileId", async c => {
   return c.json({ ok: true, episode: target.row.episode, ...result });
 });
 
+// One click per episode is fine for one show and tedious across a season. Same verified mapping
+// as the single-file route, applied to every unlinked row this title has.
+app.post("/api/shoko/link-all/:anilistId", async c => {
+  const anilistId = Number(c.req.param("anilistId"));
+  if (!Number.isInteger(anilistId) || anilistId <= 0) {
+    return c.json({ error: "anilistId must be a positive integer" }, 400);
+  }
+
+  const report = await missingReport(anilistId);
+  if (report.error) return c.json({ error: report.error }, report.status);
+
+  const targets = report.rows.filter(
+    row => row.state === "on-disk-unlinked" && row.shokoFile?.fileId && row.shokoEpisodeId
+  );
+  if (targets.length === 0) return c.json({ error: "nothing to link" }, 409);
+
+  const linked = [];
+  const failed = [];
+
+  for (const row of targets.slice(0, 50)) {
+    try {
+      await shoko.linkFile(row.shokoFile.fileId, [row.shokoEpisodeId]);
+      linked.push(row.episode);
+    } catch (err) {
+      failed.push({ episode: row.episode, error: err.message });
+    }
+  }
+
+  console.log(`[hikari] linked ${linked.length} file(s) for anilist ${anilistId}: ${linked.join(",")}`);
+  return c.json({ ok: failed.length === 0, linked, failed });
+});
+
 app.post("/api/shoko/link/:anilistId/:fileId", async c => {
   const target = await repairTarget(Number(c.req.param("anilistId")), Number(c.req.param("fileId")));
   if (target.error) return c.json({ error: target.error }, target.status);

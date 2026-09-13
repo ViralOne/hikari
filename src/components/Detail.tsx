@@ -3,6 +3,7 @@ import {
   ANILIST_STATUSES,
   getAnime,
   getList,
+  linkAllShokoFiles,
   linkShokoFile,
   markJellyfinPlayed,
   postRequest,
@@ -157,6 +158,32 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
             action === "rescan"
               ? `Shoko is rescanning the file for episode ${result.episode}. Reopen this panel in a moment to see whether AniDB matched it.`
               : `Linked the file to episode ${result.episode}.`
+        }
+      }));
+      props.onRequested();
+    } catch (err) {
+      setOutcomes(prev => ({
+        ...prev,
+        [props.id]: { ok: false, message: err instanceof Error ? err.message : String(err) }
+      }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const linkAll = async (anilistId: number) => {
+    setBusy(true);
+    try {
+      const result = await linkAllShokoFiles(anilistId);
+      setOutcomes(prev => ({
+        ...prev,
+        [props.id]: {
+          ok: result.ok,
+          message: result.ok
+            ? `Linked ${result.linked.length} file(s): episode${result.linked.length === 1 ? "" : "s"} ${result.linked.join(", ")}. They should appear in Jellyfin once Shokofin refreshes.`
+            : `Linked ${result.linked.length}, failed ${result.failed.length}: ${result.failed
+                .map(item => `ep ${item.episode} (${item.error})`)
+                .join("; ")}`
         }
       }));
       props.onRequested();
@@ -784,6 +811,16 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                                 {/* The per-file buttons fix one episode. These fix the class, which
                                     matters when the same gap covers dozens of files. */}
                                 <div class="chips">
+                                  <Show when={report().counts.onDiskUnlinked > 1}>
+                                    <button
+                                      class="btn tiny"
+                                      disabled={busy()}
+                                      title="Link every unmatched file of this title to its episode"
+                                      onClick={() => linkAll(anime().id)}
+                                    >
+                                      Link all {report().counts.onDiskUnlinked}
+                                    </button>
+                                  </Show>
                                   <button
                                     class="btn tiny ghost"
                                     disabled={busy()}
