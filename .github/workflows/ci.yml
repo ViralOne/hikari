@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run check
+
+      - name: Build frontend
+        run: npm run build
+
+      # fixtures/ is generated from a live media stack and is not committed, so CI can only
+      # run the matcher's unit cases. The precision and recall floors are checked locally.
+      - name: Matcher unit tests
+        run: npm run test:unit
+
+      - name: Server starts with no services configured
+        run: |
+          node server/index.js &
+          pid=$!
+          for _ in $(seq 1 20); do
+            curl -fsS http://127.0.0.1:7997/api/health >/dev/null && break
+            sleep 0.5
+          done
+          curl -fsS http://127.0.0.1:7997/api/health | head -c 400
+          kill $pid
+        env:
+          PORT: 7997

@@ -1,0 +1,14 @@
+# Runs the prebuilt image instead of building locally:
+#   docker compose -f docker-compose.ghcr.yml up -d
+# Pull a newer build with:
+#   docker compose -f docker-compose.ghcr.yml pull && docker compose -f docker-compose.ghcr.yml up -d
+services:
+  hikari:
+    image: ghcr.io/viralone/hikari:latest
+    container_name: hikari
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "7997:7997"
+    volumes:
+      - ./cache:/cache

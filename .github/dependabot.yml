@@ -1,0 +1,21 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "deps"
+    groups:
+      solid:
+        patterns: ["solid-js", "@solidjs/*"]
+    # Solid 2 and Vite 8 are pre-release here; pinned on purpose, so let them be proposed
+    # but keep the noise down.
+    open-pull-requests-limit: 5

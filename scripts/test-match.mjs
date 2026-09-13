@@ -70,15 +70,23 @@ check("search titles drop season markers", searchTitle("DAN DA DAN Season 2") ==
 check("ordinals are parsed", seasonOrdinal("Gintama Season 3") === 3 && seasonOrdinal("Slime 4th Season") === 4);
 
 // --- fixture evaluation
+//
+// fixtures/ is generated from a live media stack, so CI cannot have it. --unit-only says so
+// out loud; without the flag a missing fixture file is a failure, because silently skipping
+// the precision and recall floors is how a threshold regression ships.
+const unitOnly = process.argv.includes("--unit-only");
+
 let fixtures;
 try {
   fixtures = JSON.parse(readFileSync("fixtures/match-cases.json", "utf8"));
 } catch {
   console.log(
-    "\nFAIL  fixtures/match-cases.json is missing, so no precision or recall floor was checked." +
+    `\n${unitOnly ? "SKIP" : "FAIL"}  fixtures/match-cases.json is missing, so no precision or recall floor was checked.` +
       "\n      Run `npm run fixtures` against a live stack to regenerate it."
   );
-  process.exit(1);
+  if (!unitOnly) process.exit(1);
+  console.log(failures === 0 ? "\nunit checks passed" : `\n${failures} check(s) failed`);
+  process.exit(failures > 0 ? 1 : 0);
 }
 
 const best = (titles, target, alternates) => {

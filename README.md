@@ -87,6 +87,23 @@ docker compose up -d --build
 Open `http://localhost:7997`. The sidebar shows a status dot per service; hover one to see the
 detected version or the error.
 
+### Using the prebuilt image
+
+Every push to `main` publishes a multi-architecture image to GitHub Container Registry, so you can
+skip the build:
+
+```bash
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+That file pulls `ghcr.io/viralone/hikari:latest`. Also available: `main`, `sha-<short>`, and a
+version tag for each release. To update:
+
+```bash
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
 ### Running it on the same host as your other services
 
 If Sonarr, Jellyfin and the rest already run in Docker on one machine, put Hikari on the same
@@ -128,6 +145,15 @@ For frontend development with hot reload:
 
 ```bash
 npm run dev      # API on 7997, Vite dev server on 5273
+```
+
+Checks:
+
+```bash
+npm run check      # typecheck
+npm run test:unit  # title matcher unit cases, no services needed
+npm run fixtures   # builds a labelled dataset by reading your stack (read-only)
+npm test           # unit cases plus precision and recall floors, needs the fixtures
 ```
 
 ## Configuration
