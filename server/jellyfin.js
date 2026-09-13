@@ -3,6 +3,11 @@ import { cached } from "./cache.js";
 import { request } from "./http.js";
 import { normalize, similarity, usable } from "./match.js";
 
+// Tuned against fixtures/match-cases.json (23 known-correct pairs, 184 known-wrong).
+// 0.70 gives precision 0.957 / recall 0.957; the previous 0.85 only reached recall 0.826
+// because Shokofin names items without the season ordinal AniList carries.
+const JELLYFIN_TITLE_THRESHOLD = 0.7;
+
 // Jellyfin 12 only accepts the Authorization header form; X-Emby-Token was removed.
 function headers() {
   return { Authorization: `MediaBrowser Token="${config.jellyfin.key}"`, Accept: "application/json" };
@@ -124,7 +129,7 @@ async function computeProgress(anime, library, shoko) {
         if (!best || score > best.score) best = { score, entry: candidate.entry };
       }
     }
-    if (best && best.score >= 0.85) {
+    if (best && best.score >= JELLYFIN_TITLE_THRESHOLD) {
       matches = [best.entry];
       via = "title";
     }

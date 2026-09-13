@@ -3,6 +3,11 @@ import { cached, invalidate } from "./cache.js";
 import { request } from "./http.js";
 import { normalize, similarity, usable } from "./match.js";
 
+// Tuned against fixtures/match-cases.json (20 known-correct pairs, 160 known-wrong).
+// 0.80 gives precision 1.000 / recall 1.000; 0.75 admitted one false positive
+// ("Re:Zero 4th Season" matching "Farming Life in Another World" at 0.787).
+const SONARR_MATCH_THRESHOLD = 0.8;
+
 function api(path, options = {}) {
   if (!enabled.sonarr) throw new Error("Sonarr is not configured");
   return request("sonarr", `${config.sonarr.url}/api/v3${path}`, {
@@ -119,7 +124,7 @@ async function computeMatch(anime) {
     }
   }
 
-  if (!best || best.score < 0.75) return null;
+  if (!best || best.score < SONARR_MATCH_THRESHOLD) return null;
   return {
     id: best.item.id,
     tvdbId: best.item.tvdbId,

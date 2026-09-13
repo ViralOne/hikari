@@ -5,6 +5,9 @@ const KEEP = new RegExp(`[^a-z0-9'${CJK} ]+`, "g");
 const MEANINGFUL = new RegExp(`[a-z${CJK}]`, "g");
 
 const NOISE = [
+  // Sonarr and Shokofin disambiguate remakes with a trailing year, which AniList titles never
+  // carry. Leaving it in cost real matches, e.g. "Koukaku Kidoutai" vs "Koukaku Kidoutai (2026)".
+  /\s*\((?:19|20)\d{2}\)\s*$/g,
   /第\s*\d+\s*(?:期|季|シーズン)/g,
   /シーズン\s*\d+/g,
   /\b(?:the\s+)?(?:final|second|third|fourth|fifth)\s+season\b/g,
@@ -12,7 +15,11 @@ const NOISE = [
   /\bpart\s*\d+\b/g,
   /\b(?:cour|kuur)\s*\d+\b/g,
   /\b\d+(?:st|nd|rd|th)\s+season\b/g,
-  /\btv\b/g
+  /\btv\b/g,
+  // A trailing roman numeral is a season marker too, so "Youjo Senki II", "Youjo Senki 2"
+  // and "Youjo Senki 2nd Season" all reduce to the same key. Kept last so the patterns above
+  // have already removed the spelled-out forms.
+  /\s+(?:i{1,3}|iv|vi{0,3}|ix|x)\s*$/g
 ];
 
 export function normalize(title) {

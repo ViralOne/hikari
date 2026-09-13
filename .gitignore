@@ -6,3 +6,4 @@ dist/
 .impeccable/
 .playwright-mcp/
 .cache/
+fixtures/
