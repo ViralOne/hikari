@@ -10,6 +10,7 @@ FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=7997
+ENV CACHE_FILE=/cache/hikari-cache.json
 
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev && npm cache clean --force
@@ -17,7 +18,8 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY server ./server
 COPY --from=build /app/dist ./dist
 
-RUN addgroup -g 10001 hikari && adduser -D -u 10001 -G hikari hikari
+RUN addgroup -g 10001 hikari && adduser -D -u 10001 -G hikari hikari \
+ && mkdir -p /cache && chown hikari:hikari /cache
 USER hikari
 
 EXPOSE 7997

@@ -6,7 +6,7 @@ import { Hono } from "hono";
 import { csrf } from "hono/csrf";
 
 import { config, enabled } from "./config.js";
-import { cached } from "./cache.js";
+import { cached, loadSnapshot, saveSnapshot, stats as cacheStats } from "./cache.js";
 import * as anilist from "./anilist.js";
 import * as seerr from "./jellyseerr.js";
 import * as sonarr from "./sonarr.js";
@@ -506,9 +506,31 @@ async function describeRouting(request) {
   };
 }
 
+const restored = loadSnapshot();
+
+// Persist on the way out and periodically, so a restart or crash keeps the AniList data.
+let saving = false;
+const flush = async () => {
+  if (saving) return;
+  saving = true;
+  await saveSnapshot();
+  saving = false;
+};
+setInterval(flush, 5 * 60 * 1000).unref();
+
+for (const signal of ["SIGTERM", "SIGINT"]) {
+  process.on(signal, async () => {
+    const saved = await saveSnapshot();
+    console.log(`[hikari] saved ${saved} cache entries, exiting`);
+    process.exit(0);
+  });
+}
+
 serve({ fetch: app.fetch, port: config.port, hostname: config.host }, info => {
   console.log(`[hikari] api on http://0.0.0.0:${info.port}${hasBuild ? " (serving dist/)" : " (dev: run vite separately)"}`);
   for (const [name, on] of Object.entries(enabled)) {
     console.log(`[hikari]   ${on ? "on " : "off"} ${name}`);
   }
+  const snapshot = cacheStats().snapshot;
+  if (snapshot) console.log(`[hikari]   cache snapshot ${snapshot} (${restored} entries restored)`);
 });
