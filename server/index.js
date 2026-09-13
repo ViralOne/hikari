@@ -219,10 +219,11 @@ app.get("/api/anime/:id", async c => {
   ]);
 
   const library = await sonarr.findMatch(anime, shokoInfo).catch(() => null);
-  const [movie, listEntry, files] = await Promise.all([
+  const [movie, listEntry, files, unrecognized] = await Promise.all([
     radarr.findMatch(anime, request?.tmdbId).catch(() => null),
     anilistList.entryFor(anime.id).catch(() => null),
-    shokoInfo ? shoko.fileDetail(shokoInfo.shokoId).catch(() => null) : Promise.resolve(null)
+    shokoInfo ? shoko.fileDetail(shokoInfo.shokoId).catch(() => null) : Promise.resolve(null),
+    shokoInfo ? shoko.unrecognizedCount().catch(() => null) : Promise.resolve(null)
   ]);
 
   const [routing, watch] = await Promise.all([
@@ -236,7 +237,7 @@ app.get("/api/anime/:id", async c => {
     ...anime,
     library,
     movie,
-    shoko: shokoInfo ? { ...shokoInfo, files } : null,
+    shoko: shokoInfo ? { ...shokoInfo, files, unrecognized } : null,
     list: listEntry,
     request,
     routing,
@@ -368,6 +369,125 @@ app.post("/api/sonarr/series/:id/series-type", async c => {
 
   const result = await sonarr.setSeriesType(Number(c.req.param("id")), seriesType);
   return c.json({ ok: true, ...result });
+});
+
+// Episodes AniDB says have aired but that are not on disk. AniDB numbers a split cour from 1
+// while Sonarr keeps TVDB's numbering, so episode numbers cannot be compared directly — the
+// air date is the only field both sides agree on. Anything that does not match a single Sonarr
+// episode without a file is reported and left alone rather than guessed at.
+const MAX_SEARCH_EPISODES = 24;
+
+async function planMissingSearch(anilistId) {
+  const anime = await anilist.byId(anilistId);
+  if (!anime) return { error: "not found", status: 404 };
+
+  const shokoInfo = await shoko.infoFor(anime).catch(() => null);
+  if (!shokoInfo) {
+    return { error: "Shoko has no entry for this title, so Hikari cannot tell which episodes are missing", status: 409 };
+  }
+
+  const [files, library] = await Promise.all([
+    shoko.fileDetail(shokoInfo.shokoId).catch(() => null),
+    sonarr.findMatch(anime, shokoInfo).catch(() => null)
+  ]);
+
+  if (!library) return { error: "This title is not in Sonarr yet, so there is nothing to search", status: 409 };
+  if (!files) return { error: "Shoko did not return an episode list", status: 502 };
+
+  const catalogue = await sonarr.episodes(library.id);
+  const today = new Date().toISOString().slice(0, 10);
+
+  const matched = [];
+  const skipped = [];
+
+  for (const episode of files.episodes) {
+    if (episode.hasFile) continue;
+    if (!episode.airDate) {
+      skipped.push({ episode: episode.episode, code: "no-air-date", reason: "AniDB has no air date for it" });
+      continue;
+    }
+    if (episode.airDate > today) continue; // not aired, so not missing
+
+    const sameDay = catalogue.filter(item => withinADay(item.airDate, episode.airDate));
+
+    if (sameDay.length === 0) {
+      skipped.push({
+        episode: episode.episode,
+        airDate: episode.airDate,
+        code: "no-sonarr-episode",
+        reason: "no Sonarr episode airs on that date"
+      });
+      continue;
+    }
+    if (sameDay.length > 1) {
+      skipped.push({
+        episode: episode.episode,
+        airDate: episode.airDate,
+        code: "ambiguous",
+        reason: `${sameDay.length} Sonarr episodes share that air date, so the match is ambiguous`
+      });
+      continue;
+    }
+    // The common case, and not a download problem at all: the file exists and Shoko simply
+    // never matched it to an AniDB episode.
+    if (sameDay[0].hasFile) {
+      skipped.push({
+        episode: episode.episode,
+        airDate: episode.airDate,
+        code: "already-on-disk",
+        reason: `Sonarr already has S${sameDay[0].seasonNumber}E${sameDay[0].episodeNumber}`
+      });
+      continue;
+    }
+
+    matched.push({
+      anidbEpisode: episode.episode,
+      airDate: episode.airDate,
+      id: sameDay[0].id,
+      seasonNumber: sameDay[0].seasonNumber,
+      episodeNumber: sameDay[0].episodeNumber,
+      title: sameDay[0].title,
+      monitored: sameDay[0].monitored
+    });
+  }
+
+  return {
+    series: { id: library.id, title: library.title, via: library.via },
+    matched: matched.slice(0, MAX_SEARCH_EPISODES),
+    truncated: matched.length > MAX_SEARCH_EPISODES,
+    skipped
+  };
+}
+
+function withinADay(sonarrDate, anidbDate) {
+  if (!sonarrDate) return false;
+  const diff = Math.abs(Date.parse(`${sonarrDate}T00:00:00Z`) - Date.parse(`${anidbDate}T00:00:00Z`));
+  return Number.isFinite(diff) && diff <= 24 * 60 * 60 * 1000;
+}
+
+app.post("/api/sonarr/missing/:anilistId", async c => {
+  const anilistId = Number(c.req.param("anilistId"));
+  if (!Number.isInteger(anilistId) || anilistId <= 0) {
+    return c.json({ error: "anilistId must be a positive integer" }, 400);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const plan = await planMissingSearch(anilistId);
+  if (plan.error) return c.json({ error: plan.error }, plan.status);
+
+  // The browser never sends episode ids: it asks for a plan, shows it, then confirms. That
+  // keeps "what gets downloaded" a server-side decision.
+  if (body.confirm !== true) return c.json({ ...plan, planned: true, executed: false });
+  if (plan.matched.length === 0) return c.json({ ...plan, executed: false, error: "nothing to search" }, 409);
+
+  const ids = plan.matched.map(item => item.id);
+  const unmonitored = plan.matched.filter(item => !item.monitored).map(item => item.id);
+
+  const monitored = await sonarr.monitorEpisodes(unmonitored);
+  const command = await sonarr.searchEpisodes(ids);
+
+  console.log(`[hikari] sonarr search for ${ids.length} episode(s) of ${plan.series.title}: ${ids.join(",")}`);
+  return c.json({ ...plan, executed: true, monitored: monitored.changed, command });
 });
 
 app.get("/api/activity", async c => {

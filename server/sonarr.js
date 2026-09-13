@@ -34,6 +34,47 @@ export function version() {
   return cached("sonarr:version", 5 * 60 * 1000, async () => `v${(await api("/system/status")).version}`);
 }
 
+// Every episode of one series, with air dates and file state. Air date is the only field that
+// survives the AniDB-to-TVDB numbering difference, so it is what missing episodes match on.
+export function episodes(seriesId) {
+  return cached(`sonarr:episodes:${seriesId}`, 60 * 1000, async () => {
+    const list = await api(`/episode?seriesId=${Number(seriesId)}`);
+    return list.map(item => ({
+      id: item.id,
+      seasonNumber: item.seasonNumber,
+      episodeNumber: item.episodeNumber,
+      absoluteEpisodeNumber: item.absoluteEpisodeNumber ?? null,
+      title: item.title || null,
+      airDate: item.airDate || null,
+      airDateUtc: item.airDateUtc || null,
+      hasFile: Boolean(item.hasFile),
+      monitored: Boolean(item.monitored)
+    }));
+  });
+}
+
+// Unmonitored episodes are skipped by the search command, so they have to be monitored first
+// or the search silently does nothing.
+export async function monitorEpisodes(episodeIds) {
+  if (!episodeIds.length) return { changed: 0 };
+  await api("/episode/monitor", {
+    method: "PUT",
+    body: JSON.stringify({ episodeIds, monitored: true })
+  });
+  invalidate("sonarr:episodes:");
+  return { changed: episodeIds.length };
+}
+
+// Triggers a real indexer search and grab. Only ever called with ids Hikari resolved itself.
+export async function searchEpisodes(episodeIds) {
+  const command = await api("/command", {
+    method: "POST",
+    body: JSON.stringify({ name: "EpisodeSearch", episodeIds })
+  });
+  invalidate("sonarr:queue");
+  return { commandId: command.id ?? null, status: command.status ?? null };
+}
+
 export function series() {
   return cached("sonarr:series", 2 * 60 * 1000, async () => {
     const list = await api("/series");

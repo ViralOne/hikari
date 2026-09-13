@@ -121,6 +121,8 @@ export type ShokoInfo = {
     groups: Array<{ name: string; count: number }>;
     mixedGroups: boolean;
   } | null;
+  /** Files on disk Shoko could not match to AniDB, across the whole collection. */
+  unrecognized?: number | null;
 };
 
 export type Routing = {
@@ -275,6 +277,38 @@ export function saveListEntry(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
+  });
+}
+
+export type MissingSearchPlan = {
+  series: { id: number; title: string; via?: string | null };
+  matched: Array<{
+    anidbEpisode: number | null;
+    airDate: string;
+    id: number;
+    seasonNumber: number;
+    episodeNumber: number;
+    title: string | null;
+    monitored: boolean;
+  }>;
+  truncated: boolean;
+  skipped: Array<{
+    episode: number | null;
+    airDate?: string;
+    code: "no-air-date" | "no-sonarr-episode" | "ambiguous" | "already-on-disk";
+    reason: string;
+  }>;
+  planned?: boolean;
+  executed: boolean;
+  monitored?: number;
+};
+
+/** Without `confirm` this only reads: it returns the episodes it would search for. */
+export function searchMissingEpisodes(anilistId: number, confirm = false) {
+  return json<MissingSearchPlan>(`/api/sonarr/missing/${anilistId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirm })
   });
 }
 

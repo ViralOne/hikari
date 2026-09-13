@@ -5,7 +5,9 @@ import {
   getList,
   postRequest,
   saveListEntry,
+  searchMissingEpisodes,
   setSonarrSeriesType,
+  type MissingSearchPlan,
   type SeasonInfo
 } from "../api";
 import { bytes, formatLabel, seasonLabel, statusLabel } from "../format";
@@ -23,6 +25,10 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
   const [requested, setRequested] = createSignal<Record<number, number[] | "all">>({});
   const [busy, setBusy] = createSignal(false);
   const [writable, setWritable] = createSignal(false);
+  // Keyed by anime id because the panel is reused rather than remounted when you open another
+  // title, and a draft episode number left over from the previous one would be wrong.
+  const [drafts, setDrafts] = createSignal<Record<number, number>>({});
+  const [plans, setPlans] = createSignal<Record<number, MissingSearchPlan>>({});
 
   const defaultSelection = (seasons: SeasonInfo[] | null | undefined, suggested: number | null | undefined): Selection => {
     if (!seasons || seasons.length === 0) return "all";
@@ -85,6 +91,40 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
         [props.id]: { ok: true, message: `AniList updated: ${result.entry.status}, episode ${result.entry.progress}.` }
       }));
       props.onRequested();
+    } catch (err) {
+      setOutcomes(prev => ({
+        ...prev,
+        [props.id]: { ok: false, message: err instanceof Error ? err.message : String(err) }
+      }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const draftProgress = (current: number) => drafts()[props.id] ?? current;
+
+  const setDraft = (value: number, max: number | null) => {
+    const clamped = Math.min(Math.max(Math.trunc(value), 0), max ?? 9999);
+    setDrafts(prev => ({ ...prev, [props.id]: clamped }));
+  };
+
+  // Two steps on purpose: the first call only reads and returns the episodes it would grab, so
+  // the confirm button is pressed against a concrete list rather than a hopeful guess.
+  const planSearch = async (anilistId: number, confirm: boolean) => {
+    setBusy(true);
+    try {
+      const plan = await searchMissingEpisodes(anilistId, confirm);
+      setPlans(prev => ({ ...prev, [props.id]: plan }));
+      if (plan.executed) {
+        setOutcomes(prev => ({
+          ...prev,
+          [props.id]: {
+            ok: true,
+            message: `Sonarr is searching for ${plan.matched.length} episode${plan.matched.length === 1 ? "" : "s"}.`
+          }
+        }));
+        props.onRequested();
+      }
     } catch (err) {
       setOutcomes(prev => ({
         ...prev,
@@ -291,6 +331,10 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                                 <div class="notice warn">
                                   {(watch().aired ?? 0) - episodes().total} aired episode
                                   {(watch().aired ?? 0) - episodes().total === 1 ? "" : "s"} not downloaded yet.
+                                  <Show when={anime().shoko?.files?.missing?.length}>
+                                    {" "}
+                                    The Shoko box below lists which, and can send them to Sonarr.
+                                  </Show>
                                 </div>
                               </Show>
 
@@ -399,13 +443,59 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                               )}
                             </For>
                           </div>
+                          <div class="stepper">
+                            <button
+                              class="btn tiny ghost"
+                              aria-label="One episode back"
+                              disabled={busy() || draftProgress(entry().progress) <= 0}
+                              onClick={() => setDraft(draftProgress(entry().progress) - 1, entry().total)}
+                            >
+                              −
+                            </button>
+                            <input
+                              class="field stepper-input"
+                              type="number"
+                              inputmode="numeric"
+                              min="0"
+                              max={entry().total ?? undefined}
+                              aria-label="Episodes watched"
+                              value={draftProgress(entry().progress)}
+                              onInput={event => {
+                                // An empty field parses as 0, which would silently offer to wipe
+                                // real progress on the account.
+                                if (event.currentTarget.value === "") return;
+                                setDraft(Number(event.currentTarget.value), entry().total);
+                              }}
+                            />
+                            <button
+                              class="btn tiny ghost"
+                              aria-label="One episode forward"
+                              disabled={
+                                busy() ||
+                                (entry().total != null && draftProgress(entry().progress) >= entry().total!)
+                              }
+                              onClick={() => setDraft(draftProgress(entry().progress) + 1, entry().total)}
+                            >
+                              +
+                            </button>
+                            <span class="hint">of {entry().total ?? "?"}</span>
+                            <button
+                              class="btn tiny primary"
+                              disabled={busy() || draftProgress(entry().progress) === entry().progress}
+                              onClick={() => saveList(anime().id, { progress: draftProgress(entry().progress) })}
+                            >
+                              Save to AniList
+                            </button>
+                          </div>
+
+                          {/* Only ever offered as a way forward. Jellyfin reporting 0 because a
+                              Shokofin rebuild orphaned its watch flags must not turn into a
+                              one-tap button that wipes real progress on the account. */}
                           <Show when={anime().watch && anime().watch!.played > entry().progress}>
                             <button
                               class="btn"
                               disabled={busy()}
-                              onClick={() =>
-                                saveList(anime().id, { progress: anime().watch!.played })
-                              }
+                              onClick={() => saveList(anime().id, { progress: anime().watch!.played })}
                             >
                               Set progress to {anime().watch!.played} (from Jellyfin)
                             </button>
@@ -435,6 +525,95 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                           <div class="notice warn">
                             Missing episodes: {info().files!.missing.join(", ")}
                           </div>
+
+                          <Show
+                            when={plans()[props.id]}
+                            fallback={
+                              <button class="btn" disabled={busy()} onClick={() => planSearch(anime().id, false)}>
+                                Look for these in Sonarr
+                              </button>
+                            }
+                          >
+                            {plan => (
+                              <div class="plan">
+                                <Show
+                                  when={plan().matched.length > 0}
+                                  fallback={
+                                    <Show
+                                      when={
+                                        plan().skipped.length > 0 &&
+                                        plan().skipped.every(item => item.code === "already-on-disk")
+                                      }
+                                      fallback={
+                                        <div class="notice info">
+                                          Nothing to search: no Sonarr episode without a file matches these air dates.
+                                        </div>
+                                      }
+                                    >
+                                      {/* The interesting case. Nothing needs downloading; Shoko just
+                                          never matched the files it already has to AniDB. */}
+                                      <div class="notice ok">
+                                        Nothing to download — Sonarr already has all{" "}
+                                        {plan().skipped.length} of these files. They are missing from Shoko
+                                        only, which means Shoko never matched them to an AniDB episode.
+                                        <Show when={info().unrecognized}>
+                                          {count => (
+                                            <>
+                                              {" "}
+                                              Shoko currently has <strong>{count()}</strong> unrecognised files.
+                                            </>
+                                          )}
+                                        </Show>{" "}
+                                        Fix it in Shoko under Utilities, Unrecognised Files, or rescan the import
+                                        folder.
+                                      </div>
+                                    </Show>
+                                  }
+                                >
+                                  <div class="box-title">
+                                    {plan().executed ? "Searching" : "Would search"} {plan().matched.length} episode
+                                    {plan().matched.length === 1 ? "" : "s"} in {plan().series.title}
+                                  </div>
+                                  <For each={plan().matched}>
+                                    {item => (
+                                      <div class="plan-row">
+                                        <span>
+                                          S{String(item.seasonNumber).padStart(2, "0")}E
+                                          {String(item.episodeNumber).padStart(2, "0")}
+                                        </span>
+                                        <span class="dim">{item.title ?? "untitled"}</span>
+                                        <span class="plan-date">
+                                          aired {item.airDate}
+                                          <Show when={!item.monitored}> · will be monitored</Show>
+                                        </span>
+                                      </div>
+                                    )}
+                                  </For>
+                                  <Show when={!plan().executed}>
+                                    <button
+                                      class="btn primary"
+                                      disabled={busy()}
+                                      onClick={() => planSearch(anime().id, true)}
+                                    >
+                                      Search Sonarr now
+                                    </button>
+                                    <div class="hint">
+                                      This asks your indexers for these episodes and downloads whatever they return.
+                                    </div>
+                                  </Show>
+                                </Show>
+
+                                <Show when={plan().skipped.length > 0}>
+                                  <div class="hint">
+                                    Left alone:{" "}
+                                    {plan()
+                                      .skipped.map(item => `ep ${item.episode ?? "?"} (${item.reason})`)
+                                      .join("; ")}
+                                  </div>
+                                </Show>
+                              </div>
+                            )}
+                          </Show>
                         </Show>
                         <Show when={info().files?.groups?.length}>
                           <dl class="kv">

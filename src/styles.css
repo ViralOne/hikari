@@ -1023,6 +1023,65 @@ select.field {
   font-variant-numeric: tabular-nums;
 }
 
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.stepper-input {
+  width: 68px;
+  height: 32px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  padding: 0 6px;
+  appearance: textfield;
+  outline: none;
+}
+
+.stepper-input::-webkit-inner-spin-button,
+.stepper-input::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.stepper .btn.tiny {
+  min-width: 34px;
+}
+
+.plan {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-hi);
+  background: var(--bg-elev);
+}
+
+.plan-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-row > .dim {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-date {
+  margin-left: auto;
+  flex: none;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
 .suggest {
   font-size: 11px;
   color: #cfc4ff;

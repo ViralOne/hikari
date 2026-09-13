@@ -30,6 +30,17 @@ AniList search with season, year, format and genre filters.
 Pulled from Jellyfin: how many episodes you have watched, which episode is up next, and when you last
 played something. Cards show a progress bar; the detail panel shows the numbers.
 
+**AniList sync**
+With writes enabled you can set the list status and step episode progress up or down, or copy
+Jellyfin's count across in one click when it is ahead. Nothing is written unless
+`ANILIST_ALLOW_WRITES=true`.
+
+**Missing episodes**
+When AniDB says an episode aired but it is not on disk, Hikari matches it to the Sonarr episode by
+air date and offers to search for it. It shows you the exact list first and only searches after you
+confirm. If Sonarr turns out to already have the file, it says so instead — that case is a Shoko
+import gap, not a download gap, and no search is sent.
+
 **Requesting**
 Resolves an AniList entry to a TMDB id through Jellyseerr, works out which TMDB season the entry maps
 to, and sends the request. Seasons you already requested are locked and excluded, so you cannot
@@ -323,6 +334,8 @@ Add to `services.yaml`:
 | `GET /api/anime/:anilistId` | Full detail: library match, watch progress, season list, request state |
 | `POST /api/request` | `{ tmdbId, mediaType, seasons, forceAnime }`. Returns 409 if nothing is left to request |
 | `POST /api/sonarr/series/:id/series-type` | Corrects Sonarr's series type |
+| `POST /api/sonarr/missing/:anilistId` | Plans a search for aired episodes that are not on disk. Only searches when the body is `{"confirm":true}` |
+| `POST /api/list/:anilistId` | `{ status, progress, score }`. Requires `ANILIST_ALLOW_WRITES=true` |
 | `GET /api/activity` | Sonarr queue, torrents, recent requests, and per-section errors |
 | `GET /api/homepage` | Flat counters for a dashboard widget |
 
@@ -385,8 +398,8 @@ your regular TV folder.
   still read as "not requested". Hikari cross-checks Sonarr and warns you before you re-download
   something you already have.
 - Movies can be resolved and requested, but there is no Radarr library badge yet.
-- AniList list status, such as Planning or Completed, is read-only here. Progress flows from Jellyfin,
-  not the other way around.
+- AniList writes are off by default. With `ANILIST_ALLOW_WRITES=true` you can set the status and
+  edit episode progress from the detail panel; without it that section is read-only.
 
 ## Built with
 

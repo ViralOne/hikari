@@ -94,6 +94,16 @@ export async function infoFor(anime) {
   return { ...entry, via };
 }
 
+// Files on disk that Shoko could not match to an AniDB episode. They are the usual reason a
+// season reads as "missing" while Sonarr and the filesystem both have the file.
+export function unrecognizedCount() {
+  if (!enabled.shoko) return Promise.resolve(null);
+  return cached("shoko:unrecognized", 5 * 60 * 1000, async () => {
+    const body = await api("/File?pageSize=1&include_unrecognized=only");
+    return body.Total ?? (body.List || []).length;
+  });
+}
+
 // Release group and source per episode. Only worth fetching for a single opened title.
 export function fileDetail(shokoId) {
   return cached(`shoko:files:${shokoId}`, 30 * 60 * 1000, async () => {
