@@ -11,7 +11,9 @@ const PATHS: Record<string, string[]> = {
   ],
   search: ["M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14", "m16.2 16.2 3.8 3.8"],
   pulse: ["M3 12h3.5l2.5-6 3.5 12 2.5-6H21"],
-  external: ["M14 4h6v6", "M20 4 11 13", "M18 14v4.5A1.5 1.5 0 0 1 16.5 20h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"]
+  external: ["M14 4h6v6", "M20 4 11 13", "M18 14v4.5A1.5 1.5 0 0 1 16.5 20h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"],
+  refresh: ["M20 11a8 8 0 1 0-2.3 5.7", "M20 5v6h-6"],
+  close: ["M6 6l12 12", "M18 6 6 18"]
 };
 
 export function Icon(props: { name: keyof typeof PATHS | string; size?: number }) {

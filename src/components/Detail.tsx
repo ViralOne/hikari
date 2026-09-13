@@ -187,7 +187,7 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
         tabindex="-1"
       >
         <button class="panel-close" onClick={() => props.onClose()} aria-label="Close details">
-          ✕
+          <Icon name="close" size={17} />
         </button>
 
         <Loading fallback={<div class="skeleton" style={{ height: "210px" }} />} on={props.id}>
@@ -214,28 +214,12 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                     </div>
                   </div>
 
-                  <div class="meta-row">
+                  <div class="meta-row meta-dotted">
                     <span>{seasonLabel(anime().season, anime().seasonYear)}</span>
-                    <i class="meta-sep" />
                     <span>{formatLabel(anime().format)}</span>
-                    <i class="meta-sep" />
                     <span>{statusLabel(anime().status)}</span>
-                    <Show when={anime().episodes}>
-                      {count => (
-                        <>
-                          <i class="meta-sep" />
-                          <span>{count()} ep</span>
-                        </>
-                      )}
-                    </Show>
-                    <Show when={anime().score}>
-                      {score => (
-                        <>
-                          <i class="meta-sep" />
-                          <span>{score()}%</span>
-                        </>
-                      )}
-                    </Show>
+                    <Show when={anime().episodes}>{count => <span>{count()} ep</span>}</Show>
+                    <Show when={anime().score}>{score => <span>{score()}%</span>}</Show>
                   </div>
 
                   <div class="chips">

@@ -38,6 +38,11 @@ create duplicates.
 **Activity**
 Your Sonarr queue, active and anime torrents with progress and ratio, and recent Jellyseerr requests.
 
+**Phone layout**
+Below 900px the sidebar is replaced by a slim top bar and a bottom tab bar, the detail drawer
+becomes a bottom sheet, and tables scroll sideways with the name column pinned. The tab bar clears
+the home indicator on a notched phone.
+
 ## Requirements
 
 Only Jellyseerr is required. Everything else is optional and simply disables the features it powers.

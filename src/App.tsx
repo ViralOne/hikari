@@ -16,10 +16,32 @@ const VIEWS: Array<{ id: View; label: string; icon: string }> = [
   { id: "activity", label: "Activity", icon: "pulse" }
 ];
 
+// The sidebar and the mobile tab bar are separate elements because on a phone the brand belongs
+// at the top and the tabs belong at the bottom, which no amount of CSS reordering achieves from
+// one DOM position. Only one is ever displayed, so `display: none` keeps the other out of the
+// accessibility tree entirely and there is no duplicate navigation to tab through.
+function NavButtons(props: { view: View; onSelect: (view: View) => void; itemClass: string }) {
+  return (
+    <For each={VIEWS}>
+      {item => (
+        <button
+          class={[props.itemClass, { active: props.view === item.id }]}
+          onClick={() => props.onSelect(item.id)}
+          aria-current={props.view === item.id ? "page" : undefined}
+        >
+          <Icon name={item.icon} />
+          <span>{item.label}</span>
+        </button>
+      )}
+    </For>
+  );
+}
+
 export function App() {
   const [view, setView] = createSignal<View>("discover");
   const [selected, setSelected] = createSignal<number | null>(null);
   const [token, setToken] = createSignal(0);
+  const [statusOpen, setStatusOpen] = createSignal(false);
   const [health, setHealth] = createSignal<Awaited<ReturnType<typeof getHealth>> | null>(null);
 
   const refresh = () => setToken(value => value + 1);
@@ -35,7 +57,10 @@ export function App() {
     const timer = setInterval(loadHealth, 60000);
 
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSelected(null);
+      if (event.key === "Escape") {
+        setSelected(null);
+        setStatusOpen(false);
+      }
     };
     window.addEventListener("keydown", onKey);
 
@@ -51,11 +76,70 @@ export function App() {
     return Object.entries(current.checks).map(([name, check]) => ({ name, ...check }));
   });
 
+  // The sidebar's status list is hidden on a phone, so the tally has to be reachable from the
+  // top bar or a red service is invisible on the device most likely to be used casually.
+  const tally = createMemo(() => {
+    const configured = services().filter(service => service.configured);
+    return { ok: configured.filter(service => service.ok).length, total: configured.length };
+  });
+
+  const pick = (next: View) => {
+    setView(next);
+    setStatusOpen(false);
+  };
+
   return (
     <div class="app">
       <a class="skip-link" href="#content">
         Skip to content
       </a>
+
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" />
+          <div>
+            <div class="brand-name">Hikari</div>
+            <div class="brand-sub">anime deck</div>
+          </div>
+        </div>
+
+        <button
+          class={["status-pill", { bad: tally().total > 0 && tally().ok < tally().total }]}
+          onClick={() => setStatusOpen(open => !open)}
+          aria-expanded={statusOpen() ? "true" : "false"}
+          aria-label={`Service status, ${tally().ok} of ${tally().total} connected`}
+        >
+          <i
+            class={["dot", { ok: tally().total > 0 && tally().ok === tally().total, bad: tally().ok < tally().total }]}
+            aria-hidden="true"
+          />
+          {tally().ok}/{tally().total}
+        </button>
+
+        <button class="icon-btn" onClick={refresh} aria-label="Refresh data">
+          <Icon name="refresh" size={18} />
+        </button>
+      </header>
+
+      <Show when={statusOpen()}>
+        <div class="sheet-scrim" onClick={() => setStatusOpen(false)} />
+        <div class="status-sheet" role="dialog" aria-label="Service status">
+          <div class="box-title">Services</div>
+          <For each={services()}>
+            {service => (
+              <div class="svc">
+                <i class={["dot", { ok: service.ok, bad: service.configured && !service.ok }]} aria-hidden="true" />
+                <span class="svc-name">{service.name}</span>
+                <span class="svc-detail">{service.configured ? service.detail : "not configured"}</span>
+              </div>
+            )}
+          </For>
+          <button class="btn ghost tiny" onClick={() => setStatusOpen(false)}>
+            Close
+          </button>
+        </div>
+      </Show>
+
       <nav class="sidebar" aria-label="Sections">
         <div class="brand">
           <div class="brand-mark" />
@@ -66,18 +150,7 @@ export function App() {
         </div>
 
         <div class="nav">
-          <For each={VIEWS}>
-            {item => (
-              <button
-                class={["nav-item", { active: view() === item.id }]}
-                onClick={() => setView(item.id)}
-                aria-current={view() === item.id ? "page" : undefined}
-              >
-                <Icon name={item.icon} />
-                {item.label}
-              </button>
-            )}
-          </For>
+          <NavButtons view={view()} onSelect={pick} itemClass="nav-item" />
         </div>
 
         <div class="sidebar-foot">
@@ -126,6 +199,10 @@ export function App() {
           </Switch>
         </Errored>
       </main>
+
+      <nav class="tabbar" aria-label="Sections">
+        <NavButtons view={view()} onSelect={pick} itemClass="tab" />
+      </nav>
 
       <Show when={selected()}>
         {id => (

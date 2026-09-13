@@ -15,28 +15,15 @@ export function Hero(props: { anime: Anime; eyebrow: string; onOpen: (id: number
         <span class="hero-eyebrow">{props.eyebrow}</span>
         <h1 class="hero-title">{props.anime.title.display}</h1>
 
-        <div class="meta-row">
+        {/* meta-dotted draws the separators with ::before so they stay attached to their own
+            item. Standalone separator elements were left dangling at the end of a wrapped line,
+            which happens on every narrow viewport. */}
+        <div class="meta-row meta-dotted">
           <span>{seasonLabel(props.anime.season, props.anime.seasonYear)}</span>
-          <i class="meta-sep" />
           <span>{formatLabel(props.anime.format)}</span>
-          <i class="meta-sep" />
           <span>{statusLabel(props.anime.status)}</span>
-          <Show when={props.anime.episodes}>
-            {count => (
-              <>
-                <i class="meta-sep" />
-                <span>{count()} episodes</span>
-              </>
-            )}
-          </Show>
-          <Show when={props.anime.studio}>
-            {studio => (
-              <>
-                <i class="meta-sep" />
-                <span>{studio()}</span>
-              </>
-            )}
-          </Show>
+          <Show when={props.anime.episodes}>{count => <span>{count()} episodes</span>}</Show>
+          <Show when={props.anime.studio}>{studio => <span>{studio()}</span>}</Show>
         </div>
 
         <Show when={props.anime.synopsis}>

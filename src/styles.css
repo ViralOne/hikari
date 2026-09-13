@@ -18,6 +18,10 @@
   --shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
   --sidebar: 232px;
   --gutter: 40px;
+  --topbar: 56px;
+  --tabbar: 60px;
+  /* env() is 0 everywhere except a notched phone, so this is safe to use unconditionally. */
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
   --font-ui: "Onest Variable", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Schibsted Grotesk Variable", "Onest Variable", ui-sans-serif, system-ui, sans-serif;
 }
@@ -41,6 +45,8 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* Grey flash on every tap makes a web app feel like a web page. */
+  -webkit-tap-highlight-color: transparent;
 }
 
 .brand-name,
@@ -86,13 +92,15 @@ select {
 .app {
   display: grid;
   grid-template-columns: var(--sidebar) minmax(0, 1fr);
-  min-height: 100vh;
+  /* dvh, not vh: on mobile Safari 100vh is taller than the visible area, which pushed the
+     bottom of every full-height element under the browser chrome. */
+  min-height: 100dvh;
 }
 
 .sidebar {
   position: sticky;
   top: 0;
-  height: 100vh;
+  height: 100dvh;
   border-right: 1px solid var(--border);
   background: var(--bg-elev);
   padding: 22px 14px;
@@ -211,6 +219,165 @@ select {
   box-shadow: 0 0 8px rgba(255, 95, 109, 0.6);
 }
 
+/* --- mobile chrome. Defined here, shown only under the breakpoint at the end of the file. --- */
+
+.topbar,
+.tabbar {
+  display: none;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  height: var(--topbar);
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  background: rgba(14, 14, 19, 0.86);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar .brand {
+  margin-right: auto;
+  padding: 0;
+}
+
+.icon-btn {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.icon-btn:active {
+  background: var(--surface-hi);
+  color: var(--text);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 11px;
+  font-size: 12px;
+  font-weight: 560;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.status-pill.bad {
+  color: #ffc0c5;
+  border-color: rgba(255, 95, 109, 0.32);
+}
+
+.sheet-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 44;
+  background: rgba(4, 4, 7, 0.6);
+}
+
+.status-sheet {
+  position: fixed;
+  z-index: 45;
+  top: calc(var(--topbar) + 8px);
+  right: 12px;
+  left: 12px;
+  max-width: 340px;
+  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 14px;
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  border: 1px solid var(--border-hi);
+  box-shadow: var(--shadow);
+}
+
+.status-sheet .svc {
+  gap: 9px;
+}
+
+.svc-name {
+  text-transform: capitalize;
+  color: var(--text-dim);
+}
+
+.svc-detail {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 55%;
+  text-align: right;
+}
+
+.tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 39;
+  grid-template-columns: repeat(4, 1fr);
+  height: calc(var(--tabbar) + var(--safe-bottom));
+  padding-bottom: var(--safe-bottom);
+  background: rgba(14, 14, 19, 0.92);
+  backdrop-filter: blur(16px);
+  border-top: 1px solid var(--border);
+}
+
+.tab {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: var(--tabbar);
+  font-size: 10.5px;
+  font-weight: 560;
+  letter-spacing: 0.01em;
+  color: var(--text-faint);
+  transition: color 0.13s;
+}
+
+.tab .icon {
+  width: 21px;
+  height: 21px;
+}
+
+.tab.active {
+  color: #cfc4ff;
+}
+
+/* The indicator sits on the top edge so it reads as a tab bar rather than four buttons. */
+.tab.active::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 26px;
+  height: 2px;
+  border-radius: 0 0 3px 3px;
+  background: linear-gradient(90deg, #ff6bcb, var(--accent));
+}
+
+.tab:active {
+  color: var(--text);
+}
+
 .main {
   min-width: 0;
   padding-bottom: 80px;
@@ -284,9 +451,15 @@ select {
   color: var(--text-dim);
 }
 
-.meta-sep {
+/* The dot belongs to the item that follows it, so a wrap never leaves one stranded at the
+   end of a line. The row's own gap supplies the space on the other side. */
+.meta-dotted > span + span::before {
+  content: "";
+  display: inline-block;
   width: 3px;
   height: 3px;
+  margin-right: 9px;
+  vertical-align: 0.18em;
   border-radius: 99px;
   background: var(--text-faint);
 }
@@ -1100,35 +1273,275 @@ select.field {
   }
 }
 
+/* Touch devices have no hover, so every :hover rule fires on tap and then sticks until the next
+   tap elsewhere — a card left floating and shadowed after you closed its panel. */
+@media (hover: none) {
+  .card:hover .card-art {
+    transform: none;
+    box-shadow: none;
+    border-color: var(--border);
+  }
+  .card:hover .card-art .scrim {
+    opacity: 0;
+  }
+  .nav-item:hover,
+  .ep:hover,
+  .btn:hover:not(:disabled) {
+    background: inherit;
+  }
+
+  .card:active .card-art {
+    transform: scale(0.97);
+    border-color: var(--border-hi);
+  }
+  .ep:active,
+  .season:active {
+    background: var(--surface-hi);
+  }
+  .btn:active:not(:disabled) {
+    filter: brightness(1.15);
+  }
+}
+
 @media (max-width: 900px) {
   :root {
-    --gutter: 20px;
+    --gutter: 16px;
   }
+
   .app {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+    /* Without explicit rows both auto rows stretch to fill the 100dvh minimum, so on a short
+       page the top bar's row grew to 216px and pushed the content down by a screenful. */
+    grid-template-rows: auto minmax(0, 1fr);
   }
+
+  /* The sidebar became a horizontal scroller here, which cut off the tabs and dropped the
+     service list entirely. On a phone the top bar and bottom tab bar replace it outright. */
   .sidebar {
-    position: static;
-    height: auto;
-    flex-direction: row;
-    align-items: center;
-    gap: 14px;
-    overflow-x: auto;
-    padding: 12px 16px;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-  }
-  .nav {
-    flex-direction: row;
-  }
-  .sidebar-foot {
     display: none;
   }
-  .hero {
-    padding: 24px var(--gutter);
-    min-height: 300px;
+
+  .topbar {
+    display: flex;
   }
+
+  .tabbar {
+    display: grid;
+  }
+
+  .main {
+    /* Clear the fixed tab bar, plus the home-indicator strip on a notched phone. */
+    padding-bottom: calc(var(--tabbar) + var(--safe-bottom) + 20px);
+  }
+
+  .hero {
+    min-height: 62svh;
+    padding: 22px var(--gutter) 26px;
+  }
+
   .hero-title {
-    font-size: 28px;
+    font-size: 27px;
+  }
+
+  .hero-synopsis {
+    -webkit-line-clamp: 2;
+    font-size: 13px;
+  }
+
+  .hero-veil {
+    /* The right-to-left wash was tuned for a wide viewport; on a narrow one the text sat over
+       the brightest part of the art. Fade upward instead. */
+    background: linear-gradient(to top, var(--bg) 4%, rgba(8, 8, 11, 0.82) 46%, rgba(8, 8, 11, 0.25) 100%);
+  }
+
+  .section {
+    padding: 22px var(--gutter) 4px;
+  }
+
+  .section-head {
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    margin-bottom: 10px;
+  }
+
+  .rail {
+    /* Two posters plus a visible sliver of the third, which is the only cue that the row
+       scrolls. Sized so two cards exactly filling the width is not possible. */
+    grid-auto-columns: clamp(118px, 40vw, 168px);
+    gap: 12px;
+    padding: 8px var(--gutter) 18px;
+    /* Free scrolling feels loose on a touch screen; snapping each poster to the gutter does not. */
+    scroll-snap-type: x mandatory;
+  }
+
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
+    gap: 14px 10px;
+  }
+
+  .card-title {
+    font-size: 12px;
+  }
+
+  /* A search field with a fixed 260px input forced the whole toolbar to scroll sideways. */
+  .toolbar {
+    padding: 18px var(--gutter) 4px;
+    gap: 8px;
+  }
+
+  .toolbar .field:has(input) {
+    flex: 1 1 100%;
+  }
+
+  .field input {
+    width: 100%;
+  }
+
+  .toolbar select.field {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 0;
+  }
+
+  .field {
+    height: 44px;
+  }
+
+  /* The arrow is drawn with two gradients at a fixed offset, so a taller field needs it moved. */
+  select.field {
+    background-position: calc(100% - 16px) 20px, calc(100% - 11px) 20px;
+  }
+
+  .toolbar .btn {
+    flex: 1 1 auto;
+    min-height: 40px;
+  }
+
+  /* Six-column tables cannot reflow usefully, so let them scroll inside their card. */
+  .box:has(> .table) {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+
+  .box > .table {
+    min-width: 540px;
+  }
+
+  /* Scrolling a table sideways loses the row's identity, so pin the name column. */
+  .box > .table th:first-child,
+  .box > .table td:first-child {
+    position: sticky;
+    left: 0;
+    background: var(--surface);
+    box-shadow: 8px 0 12px -10px rgba(0, 0, 0, 0.9);
+  }
+
+  .truncate {
+    max-width: 190px;
+  }
+
+  .day-group {
+    padding: 0 var(--gutter) 16px;
+  }
+
+  /* Sticky within the page scroller means the viewport top, which is under the top bar. */
+  .day-head {
+    top: calc(var(--topbar) - 1px);
+    background: linear-gradient(to bottom, var(--bg) 70%, transparent);
+  }
+
+  .ep-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* A right-hand drawer on a 390px screen is just a full-screen page with a hairline border.
+     A bottom sheet keeps the list behind it visible and puts the close control in reach. */
+  .panel {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    max-height: 92dvh;
+    border-left: none;
+    border-top: 1px solid var(--border-hi);
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 -24px 60px rgba(0, 0, 0, 0.6);
+    overscroll-behavior: contain;
+    animation: sheet-up 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .panel-hero {
+    height: 170px;
+    border-radius: 20px 20px 0 0;
+  }
+
+  /* Absolute meant the close button scrolled away, and a bottom sheet leaves only a sliver of
+     scrim to tap instead. A sticky full-width header keeps one dismiss control in reach at any
+     scroll position; a floating circle did the same but sat on top of whatever happened to be
+     at that scroll offset, hiding real content. The negative margin stops the bar reserving a
+     strip above the hero. */
+  .panel-close {
+    position: sticky;
+    top: 0;
+    width: 100%;
+    height: 52px;
+    margin: 0 0 -52px;
+    padding-right: 14px;
+    place-items: center end;
+    border: none;
+    border-radius: 20px 20px 0 0;
+    background: linear-gradient(to bottom, rgba(10, 10, 14, 0.82), rgba(10, 10, 14, 0));
+    backdrop-filter: blur(4px);
+    z-index: 5;
+  }
+
+  .panel-body {
+    padding: 0 18px calc(28px + var(--safe-bottom));
+    gap: 16px;
+  }
+
+  .panel-top {
+    grid-template-columns: 92px minmax(0, 1fr);
+    gap: 13px;
+    margin-top: -52px;
+  }
+
+  .panel-title {
+    font-size: 19px;
+    padding-top: 56px;
+  }
+
+  .season-list {
+    max-height: none;
+  }
+
+  /* 8px of padding is a 30px target; a thumb needs 44. */
+  .season {
+    padding: 11px 12px;
+  }
+
+  .btn {
+    min-height: 42px;
+  }
+
+  .btn.tiny {
+    min-height: 34px;
+  }
+
+  .empty {
+    padding: 44px var(--gutter);
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(16px);
+    opacity: 0.5;
+  }
+}
+
+@media (max-width: 400px) {
+  .brand-sub {
+    display: none;
   }
 }
