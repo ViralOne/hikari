@@ -321,7 +321,7 @@ export function saveListEntry(
 
 /** Shokofin only exposes newly linked files after Jellyfin scans, so this closes the loop. */
 export function refreshJellyfinLibrary() {
-  return json<{ ok: true; queued: boolean }>("/api/jellyfin/refresh", {
+  return json<{ ok: true; queued: boolean; scope: "library" | "all"; library: string | null }>("/api/jellyfin/refresh", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: "{}"

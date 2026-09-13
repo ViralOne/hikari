@@ -27,7 +27,10 @@ export const config = {
   jellyfin: {
     url: trim(process.env.JELLYFIN_URL),
     key: (process.env.JELLYFIN_API_KEY || "").trim(),
-    userId: (process.env.JELLYFIN_USER_ID || "").trim()
+    userId: (process.env.JELLYFIN_USER_ID || "").trim(),
+    // Which library to scan. Left empty it is detected: the Shokofin VFS library if there is
+    // one, else a library named "anime". Set it to skip the guess.
+    libraryId: (process.env.JELLYFIN_LIBRARY_ID || "").trim()
   },
   shoko: {
     url: trim(process.env.SHOKO_URL),

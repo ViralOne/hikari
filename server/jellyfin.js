@@ -211,17 +211,64 @@ export async function episodeItems(seriesIds) {
   return items.sort((a, b) => (a.season ?? 0) - (b.season ?? 0) || (a.episode ?? 0) - (b.episode ?? 0));
 }
 
+// Which library holds the anime. On a Shoko stack that is whichever library points at the
+// Shokofin VFS directory, which is a stronger signal than the library's name.
+export function libraries() {
+  return cached("jellyfin:libraries", 10 * 60 * 1000, async () => {
+    const folders = await api("/Library/VirtualFolders");
+    return (folders || []).map(folder => ({
+      id: folder.ItemId,
+      name: folder.Name,
+      collectionType: folder.CollectionType || null,
+      locations: folder.Locations || []
+    }));
+  });
+}
+
+export async function animeLibrary() {
+  if (config.jellyfin.libraryId) {
+    const known = await libraries().catch(() => []);
+    const match = known.find(library => library.id === config.jellyfin.libraryId);
+    return match ?? { id: config.jellyfin.libraryId, name: "configured library", locations: [] };
+  }
+
+  const known = await libraries();
+  return (
+    known.find(library => library.locations.some(path => /shokofin/i.test(path))) ??
+    known.find(library => /anime/i.test(library.name)) ??
+    null
+  );
+}
+
 // Shokofin only exposes newly linked files after Jellyfin scans the library, and its live
 // SignalR connection is off by default, so linking a file in Shoko otherwise waits for the
 // 12-hourly Scan Media Library task.
+//
+// Refreshing one library item validates that folder's children, which is what discovers the
+// new VFS entries. replaceAllMetadata stays false: rewriting metadata for a whole library is
+// what churns item ids, and item ids are what watched flags hang off.
 export async function refreshLibrary() {
+  const library = await animeLibrary().catch(() => null);
+
+  if (library) {
+    await request(
+      "jellyfin",
+      `${config.jellyfin.url}/Items/${library.id}/Refresh` +
+        `?metadataRefreshMode=Default&imageRefreshMode=Default&replaceAllMetadata=false&replaceAllImages=false`,
+      { method: "POST", headers: headers(), timeout: 30000 }
+    );
+    invalidate("jellyfin:");
+    return { queued: true, scope: "library", library: library.name };
+  }
+
+  // No library could be identified, so fall back to everything rather than doing nothing.
   await request("jellyfin", `${config.jellyfin.url}/Library/Refresh`, {
     method: "POST",
     headers: headers(),
     timeout: 30000
   });
   invalidate("jellyfin:");
-  return { queued: true };
+  return { queued: true, scope: "all", library: null };
 }
 
 // Marks an item played for the configured user. Jellyfin 12 dropped /Users/{id}/PlayedItems.

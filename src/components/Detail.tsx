@@ -175,13 +175,15 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
   const refreshJellyfin = async () => {
     setBusy(true);
     try {
-      await refreshJellyfinLibrary();
+      const result = await refreshJellyfinLibrary();
       setOutcomes(prev => ({
         ...prev,
         [props.id]: {
           ok: true,
           message:
-            "Jellyfin is scanning its libraries. Newly linked episodes appear once it finishes, which takes a few minutes on a large library."
+            result.scope === "library"
+              ? `Jellyfin is scanning the ${result.library} library. Newly linked episodes appear once it finishes.`
+              : "No anime library could be identified, so Jellyfin is scanning everything. Set JELLYFIN_LIBRARY_ID to narrow it."
         }
       }));
     } catch (err) {
@@ -876,7 +878,7 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                                     title="Make Jellyfin pick up newly linked files now instead of at its next 12-hourly scan"
                                     onClick={() => refreshJellyfin()}
                                   >
-                                    Scan Jellyfin library
+                                    Scan anime library
                                   </button>
                                 </div>
                               </Show>
