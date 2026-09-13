@@ -83,10 +83,10 @@ export type Anime = {
   prequelCount: number;
   siteUrl: string;
   library?: LibraryMatch | null;
+  movie?: LibraryMatch | null;
   watch?: Watch | null;
   list?: ListEntry | null;
   shoko?: ShokoInfo | null;
-  isMovie?: boolean;
 };
 
 export type SeerrLinks = { media: string | null; search: string | null };
@@ -141,15 +141,16 @@ export type AnimeDetail = Anime & {
   watch: Watch | null;
   list: ListEntry | null;
   shoko: ShokoInfo | null;
-  isMovie: boolean;
+  movie: LibraryMatch | null;
   links: SeerrLinks;
 };
 
 export type DiscoverRow = { id: string; title: string; media: Anime[] };
-export type Discover = { season: { season: string; year: number }; rows: DiscoverRow[] };
+export type ServiceErrors = Record<string, string>;
+export type Discover = { season: { season: string; year: number }; rows: DiscoverRow[]; errors?: ServiceErrors };
 
 export type ScheduleEntry = { episode: number; airingAt: number; media: Anime };
-export type Schedule = { from: number; to: number; items: ScheduleEntry[] };
+export type Schedule = { from: number; to: number; items: ScheduleEntry[]; errors?: ServiceErrors };
 
 export type QueueItem = {
   id: number;
@@ -224,7 +225,7 @@ export const getActivity = () => json<Activity>("/api/activity");
 
 export function getSearch(params: Record<string, string>) {
   const query = new URLSearchParams(Object.entries(params).filter(([, v]) => v));
-  return json<{ total?: number; media: Anime[] }>(`/api/search?${query.toString()}`);
+  return json<{ total?: number; media: Anime[]; errors?: ServiceErrors }>(`/api/search?${query.toString()}`);
 }
 
 export function postRequest(payload: {

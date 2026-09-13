@@ -30,7 +30,8 @@ export function seriesIndex() {
       const body = await api(`/Series?pageSize=100&page=${page}&includeDataFrom=AniDB`);
       const batch = body.List || [];
       items.push(...batch);
-      if (batch.length < 100 || items.length >= (body.Total ?? items.length)) break;
+      if (batch.length < 100) break;
+      if (body.Total != null && items.length >= body.Total) break;
     }
 
     const byMal = new Map();
@@ -72,7 +73,7 @@ export function seriesIndex() {
 
 // AniList exposes idMal, and Shoko records MAL ids, so that pair is an exact bridge for
 // entries whose Jellyfin item only carries an AniDB id.
-export async function infoFor(anime, tmdbId) {
+export async function infoFor(anime) {
   if (!enabled.shoko) return null;
 
   let index;
@@ -82,13 +83,8 @@ export async function infoFor(anime, tmdbId) {
     return null;
   }
 
-  let entry = anime.malId ? index.byMal.get(Number(anime.malId)) : null;
-  let via = entry ? "mal" : null;
-
-  if (!entry && tmdbId) {
-    entry = index.byTmdb.get(Number(tmdbId)) || null;
-    via = entry ? "tmdb" : null;
-  }
+  const entry = anime.malId ? index.byMal.get(Number(anime.malId)) : null;
+  const via = entry ? "mal" : null;
 
   if (!entry) return null;
   return { ...entry, via };

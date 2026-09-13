@@ -1,12 +1,12 @@
 import { config, enabled } from "./config.js";
 import { cached } from "./cache.js";
 import { request } from "./http.js";
-import { normalize, similarity, usable } from "./match.js";
+import { normalize, seasonOrdinal, similarity, usable } from "./match.js";
 
 // Tuned against fixtures/match-cases.json (23 known-correct pairs, 184 known-wrong).
 // 0.70 gives precision 0.957 / recall 0.957; the previous 0.85 only reached recall 0.826
 // because Shokofin names items without the season ordinal AniList carries.
-const JELLYFIN_TITLE_THRESHOLD = 0.7;
+export const JELLYFIN_TITLE_THRESHOLD = 0.7;
 
 // Jellyfin 12 only accepts the Authorization header form; X-Emby-Token was removed.
 function headers() {
@@ -122,14 +122,25 @@ async function computeProgress(anime, library, shoko) {
 
   if (!matches) {
     const titles = [anime.title.english, anime.title.romaji, anime.title.native].filter(Boolean);
+    // Stripping season markers makes "Youjo Senki" and "Youjo Senki II" score 1.000 against
+    // each other, so a plain > comparison silently picked whichever Jellyfin listed first.
+    // Compare the ordinals that normalisation removed to break the tie deterministically.
+    const wanted = titles.map(title => seasonOrdinal(title)).find(value => value != null) ?? 1;
     let best = null;
+
     for (const candidate of index.byTitle) {
       for (const title of titles) {
         const score = similarity(title, candidate.key);
-        if (!best || score > best.score) best = { score, entry: candidate.entry };
+        if (score < JELLYFIN_TITLE_THRESHOLD) continue;
+
+        const ordinalMatch = (seasonOrdinal(candidate.entry.name) ?? 1) === wanted;
+        if (!best || score > best.score || (score === best.score && ordinalMatch && !best.ordinalMatch)) {
+          best = { score, entry: candidate.entry, ordinalMatch };
+        }
       }
     }
-    if (best && best.score >= JELLYFIN_TITLE_THRESHOLD) {
+
+    if (best) {
       matches = [best.entry];
       via = "title";
     }

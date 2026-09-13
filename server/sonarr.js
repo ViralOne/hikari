@@ -6,7 +6,7 @@ import { normalize, similarity, usable } from "./match.js";
 // Tuned against fixtures/match-cases.json (20 known-correct pairs, 160 known-wrong).
 // 0.80 gives precision 1.000 / recall 1.000; 0.75 admitted one false positive
 // ("Re:Zero 4th Season" matching "Farming Life in Another World" at 0.787).
-const SONARR_MATCH_THRESHOLD = 0.8;
+export const SONARR_MATCH_THRESHOLD = 0.8;
 
 function api(path, options = {}) {
   if (!enabled.sonarr) throw new Error("Sonarr is not configured");
@@ -28,6 +28,10 @@ export async function setSeriesType(id, seriesType) {
   invalidate("sonarr:series");
   invalidate("sonarr:match:");
   return { changed: true, previous, seriesType };
+}
+
+export function version() {
+  return cached("sonarr:version", 5 * 60 * 1000, async () => `v${(await api("/system/status")).version}`);
 }
 
 export function series() {

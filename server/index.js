@@ -51,30 +51,38 @@ app.onError((err, c) => {
     return err.getResponse();
   }
 
-  const status = err.name === "UpstreamError" ? 502 : 500;
+  const status = err.httpStatus ?? (err.name === "UpstreamError" ? 502 : 500);
   // Upstream bodies carry internal paths, versions and config; log them, never return them.
   console.error(`[hikari] ${c.req.method} ${c.req.path} -> ${err.message}`, err.body ?? "");
   return c.json({ error: err.message, service: err.service ?? null }, status);
 });
 
-async function annotate(media) {
+// Collects per-service failures so a broken integration is reported rather than rendering as
+// an empty library. /api/activity already did this; the annotate path did not.
+async function annotate(media, problems = {}) {
   const list = Array.isArray(media) ? media : [media];
-  const listIndex = await anilistList.listIndex().catch(() => new Map());
+  const note = (service, err) => {
+    if (!problems[service]) problems[service] = err.message;
+    return null;
+  };
+
+  const listIndex = await anilistList.listIndex().catch(err => {
+    note("anilistList", err);
+    return new Map();
+  });
   const enriched = await Promise.all(
     list.map(async item => {
       if (!item) return item;
 
-      const [library, shokoInfo] = await Promise.all([
-        sonarr.findMatch(item),
-        shoko.infoFor(item).catch(() => null)
+      const [library, shokoInfo, movie] = await Promise.all([
+        sonarr.findMatch(item).catch(err => note("sonarr", err)),
+        shoko.infoFor(item).catch(err => note("shoko", err)),
+        radarr.findMatch(item).catch(err => note("radarr", err))
       ]);
 
-      const [watch, movie] = await Promise.all([
-        jellyfin.progressFor(item, library, shokoInfo).catch(() => null),
-        radarr.findMatch(item).catch(() => null)
-      ]);
+      const watch = await jellyfin.progressFor(item, library, shokoInfo).catch(err => note("jellyfin", err));
 
-      return { ...item, library: library || movie, isMovie: Boolean(movie), shoko: shokoInfo, watch, list: listIndex.get(item.id) || null };
+      return { ...item, library, movie, shoko: shokoInfo, watch, list: listIndex.get(item.id) || null };
     })
   );
   return Array.isArray(media) ? enriched : enriched[0];
@@ -94,13 +102,13 @@ app.get("/api/health", async c => {
 
   const [jellyseerr, sonarrCheck, radarrCheck, qbitCheck, jellyfinCheck, shokoCheck, listCheck, anilistCheck] = await Promise.all([
     probe("jellyseerr", enabled.jellyseerr, async () => `v${(await seerr.status()).version}`),
-    probe("sonarr", enabled.sonarr, async () => `${(await sonarr.series()).length} series`),
+    probe("sonarr", enabled.sonarr, () => sonarr.version()),
     probe("radarr", enabled.radarr, () => radarr.version()),
     probe("qbittorrent", enabled.qbit, () => qbit.version()),
     // Deliberately cheap: seriesIndex() is a full recursive Jellyfin listing and health is
     // polled every 60s, which would re-index forever from a single idle tab.
     probe("jellyfin", enabled.jellyfin, async () => `v${(await jellyfin.systemInfo()).Version}`),
-    probe("shoko", enabled.shoko, async () => `${(await shoko.seriesIndex()).byAnidb.size} series`),
+    probe("shoko", enabled.shoko, () => shoko.version()),
     probe("anilist list", enabled.anilistList, async () => (await anilistList.viewer()).name),
     probe("anilist", true, async () => `${(await anilist.page({ sort: ["TRENDING_DESC"], perPage: 1 })).media.length} ok`)
   ]);
@@ -129,16 +137,17 @@ app.get("/api/discover", async c => {
     anilist.page({ sort: ["SCORE_DESC"], perPage: 30 }, 6 * 60 * 60 * 1000)
   ]);
 
+  const problems = {};
   const rows = await Promise.all(
     [
       { id: "airing", title: `Airing now · ${label(now)}`, media: airing.media },
       { id: "trending", title: "Trending this week", media: trending.media },
       { id: "upcoming", title: `Coming next · ${label(next)}`, media: upcoming.media },
       { id: "top", title: "Highest rated of all time", media: top.media }
-    ].map(async row => ({ ...row, media: await annotate(row.media) }))
+    ].map(async row => ({ ...row, media: await annotate(row.media, problems) }))
   );
 
-  return c.json({ season: now, rows });
+  return c.json({ season: now, rows, errors: problems });
 });
 
 app.get("/api/schedule", async c => {
@@ -154,11 +163,13 @@ app.get("/api/schedule", async c => {
   const to = from + days * 86400;
 
   const items = await anilist.schedule(from, to);
-  const annotated = await annotate(items.map(x => x.media));
+  const problems = {};
+  const annotated = await annotate(items.map(x => x.media), problems);
 
   return c.json({
     from,
     to,
+    errors: problems,
     items: items.map((entry, index) => ({ episode: entry.episode, airingAt: entry.airingAt, media: annotated[index] }))
   });
 });
@@ -185,7 +196,9 @@ app.get("/api/search", async c => {
     5 * 60 * 1000
   );
 
-  return c.json({ total: result.total, media: await annotate(result.media) });
+  const problems = {};
+  const annotated = await annotate(result.media, problems);
+  return c.json({ total: result.total, media: annotated, errors: problems });
 });
 
 app.get("/api/anime/:id", async c => {
@@ -202,7 +215,7 @@ app.get("/api/anime/:id", async c => {
     enabled.jellyseerr ? seerr.resolve(anime).catch(err => ({ matched: false, error: err.message })) : Promise.resolve(null)
   ]);
 
-  const shokoInfo = await shoko.infoFor(anime, request?.tmdbId).catch(() => null);
+  const shokoInfo = await shoko.infoFor(anime).catch(() => null);
   const [movie, listEntry, files] = await Promise.all([
     radarr.findMatch(anime, request?.tmdbId).catch(() => null),
     anilistList.entryFor(anime.id).catch(() => null),
@@ -218,8 +231,8 @@ app.get("/api/anime/:id", async c => {
 
   return c.json({
     ...anime,
-    library: library || movie,
-    isMovie: Boolean(movie),
+    library,
+    movie,
     shoko: shokoInfo ? { ...shokoInfo, files } : null,
     list: listEntry,
     request,
@@ -513,8 +526,11 @@ let saving = false;
 const flush = async () => {
   if (saving) return;
   saving = true;
-  await saveSnapshot();
-  saving = false;
+  try {
+    await saveSnapshot();
+  } finally {
+    saving = false;
+  }
 };
 setInterval(flush, 5 * 60 * 1000).unref();
 

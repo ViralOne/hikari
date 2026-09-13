@@ -47,6 +47,8 @@ Only Jellyseerr is required. Everything else is optional and simply disables the
 | Jellyseerr | Resolving titles and creating requests | Discovery still works, requesting does not |
 | Sonarr | "In library" badges, episode counts, queue | No library badges |
 | Jellyfin | Watch progress and next-up | No progress bars |
+| Shoko | True episode counts from AniDB, missing episodes, release groups | Counts fall back to what is on disk |
+| Radarr | Library badges for films | Films show no badge |
 | qBittorrent | Torrent activity view | That section is empty |
 
 You also need Docker, or Node 22+ if you want to run it directly.
@@ -117,7 +119,9 @@ Every variable goes in `.env`. Anything left blank disables its feature rather t
 | `QBIT_USER` | no | qBittorrent username |
 | `QBIT_PASS` | no | qBittorrent password |
 | `ANIME_ROOT` | no | Library path used to recognise a torrent as anime. Default `/data/anime` |
-| `ANILIST_TOKEN` | no | AniList token. Not needed — discovery works unauthenticated |
+| `ANILIST_TOKEN` | no | AniList token. Discovery works without one; this adds your list status and progress |
+| `ANILIST_ALLOW_WRITES` | no | Default `false`. Set `true` to let Hikari change your AniList status and progress |
+| `CACHE_FILE` | no | Path for the cache snapshot, so a restart does not re-fetch AniList |
 | `HIKARI_TOKEN` | no | Shared secret required on the routes that change things. See Security |
 | `HOST` | no | Bind address. Default `0.0.0.0`; use `127.0.0.1` for local-only |
 | `PORT` | no | Default `7997` |
@@ -142,9 +146,20 @@ HIKARI_TOKEN=some-long-random-string
 HOST=127.0.0.1
 ```
 
-`HIKARI_TOKEN` makes the request and repair endpoints require
-`Authorization: Bearer <token>`. `HOST=127.0.0.1` stops it listening on the network at all, which is
-the right setting if you reach it through a reverse proxy on the same machine.
+`HOST=127.0.0.1` stops it listening on the network at all, which is the right setting if you reach it
+through a reverse proxy on the same machine.
+
+`HIKARI_TOKEN` makes the state-changing endpoints require `Authorization: Bearer <token>`. Be aware
+of the trade-off: **the built-in web UI does not send this header**, so setting it turns the browser
+into a read-only client and only scripted callers can request or update anything. If you need both a
+protected port and a working UI, put authentication in your reverse proxy instead and leave
+`HIKARI_TOKEN` unset.
+
+### Where your AniList token comes from
+
+If you already run the Ani-Sync Jellyfin plugin, it holds an AniList token you can reuse — no
+separate OAuth app is needed. AniList issues a single scope, so that token can write as well as
+read, which is why `ANILIST_ALLOW_WRITES` defaults to `false`.
 
 ## How requesting works
 

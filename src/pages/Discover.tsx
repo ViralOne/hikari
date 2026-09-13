@@ -40,6 +40,17 @@ export function Discover(props: { token: number; onOpen: (id: number) => void })
           <Repeat count={3}>{() => <RailSkeleton />}</Repeat>
         }
       >
+        <Show when={Object.keys(data().errors ?? {}).length > 0}>
+          <div class="section">
+            <div class="notice bad">
+              Some services could not be reached, so library and progress badges may be missing:{" "}
+              {Object.entries(data().errors ?? {})
+                .map(([service, message]) => `${service} (${message})`)
+                .join("; ")}
+            </div>
+          </div>
+        </Show>
+
         <For each={data().rows}>
           {row => (
             <Show when={row.media.length > 0}>

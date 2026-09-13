@@ -129,25 +129,39 @@ for (const series of shokoSeries) {
 }
 
 // Negatives: the same AniList titles against library entries that are definitely not them.
+// xorshift32: the previous LCG multiplied past Number.MAX_SAFE_INTEGER, so float rounding
+// collapsed its period to ~12,900 states rather than 2^31.
 let seed = 20260913;
 const nextRandom = () => {
-  seed = (seed * 1103515245 + 12345) % 2147483648;
-  return seed / 2147483648;
+  seed ^= seed << 13;
+  seed ^= seed >>> 17;
+  seed ^= seed << 5;
+  seed |= 0;
+  return (seed >>> 0) / 4294967296;
 };
 
+// Negatives must carry the same alternate-title surface as positives. Scoring a positive
+// against 9 strings and a negative against 1 flatters precision, and alternate titles are
+// exactly where production false positives come from.
 const buildNegatives = (cases, pool, perCase = 8) => {
   const out = [];
   for (const item of cases) {
-    const picked = new Set();
+    const picked = new Map();
     let guard = 0;
     while (picked.size < perCase && guard < perCase * 20) {
       guard += 1;
       const candidate = pool[Math.floor(nextRandom() * pool.length)];
-      if (!candidate || candidate === item.target) continue;
-      picked.add(candidate);
+      if (!candidate || candidate.title === item.target) continue;
+      picked.set(candidate.title, candidate);
     }
-    for (const candidate of picked) {
-      out.push({ anilistId: item.anilistId, titles: item.titles, format: item.format, target: candidate });
+    for (const candidate of picked.values()) {
+      out.push({
+        anilistId: item.anilistId,
+        titles: item.titles,
+        format: item.format,
+        target: candidate.title,
+        targetAlternates: candidate.alternates || []
+      });
     }
   }
   return out;
@@ -157,11 +171,23 @@ const fixtures = {
   builtAt: new Date().toISOString(),
   sonarr: {
     positives: sonarrCases,
-    negatives: buildNegatives(sonarrCases, sonarrList.map(s => s.title))
+    negatives: buildNegatives(
+      sonarrCases,
+      sonarrList.map(s => ({
+        title: s.title,
+        alternates: (s.alternateTitles || []).map(alt => alt.title).slice(0, 8)
+      }))
+    )
   },
   jellyfin: {
     positives: jellyfinCases,
-    negatives: buildNegatives(jellyfinCases, [...jellyfinByAnidb.values()].map(i => i.Name))
+    negatives: buildNegatives(
+      [...jellyfinCases],
+      [...jellyfinByAnidb.values()].map(i => ({
+        title: i.Name,
+        alternates: [i.OriginalTitle].filter(Boolean)
+      }))
+    )
   }
 };
 

@@ -87,19 +87,40 @@ const SAVE = `
   }
 `;
 
+export class ListWriteError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.name = "ListWriteError";
+    this.httpStatus = status;
+  }
+}
+
 export async function saveEntry({ mediaId, status, progress, score }) {
-  if (!enabled.anilistList) throw new Error("No AniList token configured");
+  if (!enabled.anilistList) throw new ListWriteError("No AniList token configured", 503);
   if (!config.anilist.allowWrites) {
-    throw new Error("AniList writes are disabled. Set ANILIST_ALLOW_WRITES=true to enable them.");
+    throw new ListWriteError("AniList writes are disabled. Set ANILIST_ALLOW_WRITES=true to enable them.", 403);
   }
   if (status && !STATUSES.includes(status)) {
-    throw new Error(`status must be one of ${STATUSES.join(", ")}`);
+    throw new ListWriteError(`status must be one of ${STATUSES.join(", ")}`, 400);
+  }
+
+  // These land on a real account and cannot be undone. Number("") is 0, which would silently
+  // reset watch progress, and Number("abc") is NaN, which JSON.stringify sends as null.
+  if (progress !== undefined && progress !== null) {
+    if (!Number.isInteger(progress) || progress < 0 || progress > 10000) {
+      throw new ListWriteError("progress must be a non-negative integer", 400);
+    }
+  }
+  if (score !== undefined && score !== null) {
+    if (!Number.isFinite(score) || score < 0 || score > 100) {
+      throw new ListWriteError("score must be a number between 0 and 100", 400);
+    }
   }
 
   const variables = { mediaId: Number(mediaId) };
   if (status) variables.status = status;
-  if (progress !== undefined && progress !== null) variables.progress = Number(progress);
-  if (score !== undefined && score !== null) variables.score = Number(score);
+  if (progress !== undefined && progress !== null) variables.progress = progress;
+  if (score !== undefined && score !== null) variables.score = score;
 
   const data = await gqlAuthed(SAVE, variables);
   invalidate("anilist:list");

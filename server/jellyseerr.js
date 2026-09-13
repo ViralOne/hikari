@@ -47,12 +47,42 @@ export function search(query) {
   });
 }
 
+// Jellyseerr's detail response embeds the requesting user's email, Plex/Jellyfin ids and the
+// Sonarr server internals. None of that is used here, and the cache is written to disk, so
+// keep only the fields this module actually reads.
+function projectDetail(detail) {
+  return {
+    seasons: (detail.seasons || []).map(season => ({
+      seasonNumber: season.seasonNumber,
+      name: season.name,
+      airDate: season.airDate ?? null,
+      episodeCount: season.episodeCount ?? 0
+    })),
+    keywords: (detail.keywords || []).map(keyword => ({ id: keyword.id })),
+    mediaInfo: detail.mediaInfo
+      ? {
+          status: detail.mediaInfo.status ?? null,
+          seasons: (detail.mediaInfo.seasons || []).map(season => ({
+            seasonNumber: season.seasonNumber,
+            status: season.status
+          })),
+          requests: (detail.mediaInfo.requests || []).map(request => ({
+            status: request.status,
+            seasons: (request.seasons || []).map(season => ({ seasonNumber: season.seasonNumber }))
+          }))
+        }
+      : null
+  };
+}
+
 export function tvDetail(tmdbId) {
-  return cached(`seerr:tv:${tmdbId}`, 60 * 60 * 1000, () => api(`/tv/${tmdbId}`));
+  return cached(`seerr:tv:${tmdbId}`, 60 * 60 * 1000, async () => projectDetail(await api(`/tv/${tmdbId}`)));
 }
 
 export function movieDetail(tmdbId) {
-  return cached(`seerr:movie:${tmdbId}`, 60 * 60 * 1000, () => api(`/movie/${tmdbId}`));
+  return cached(`seerr:movie:${tmdbId}`, 60 * 60 * 1000, async () =>
+    projectDetail(await api(`/movie/${tmdbId}`))
+  );
 }
 
 export function sonarrServers() {

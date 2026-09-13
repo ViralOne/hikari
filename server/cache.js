@@ -1,16 +1,30 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 const store = new Map();
 
-// Restarts used to drop every entry, which is how a rebuild loop hit AniList's rate limit.
-// Only long-lived AniList data is worth persisting; live queues would be stale on load.
-const PERSIST_PREFIXES = ["anilist:page:", "anilist:media:", "anilist:schedule:", "seerr:tv:", "seerr:movie:"];
-const snapshotPath = (process.env.CACHE_FILE || "").trim();
-
 // Search keys are caller-controlled (?q=, ?genre=), so the map needs a hard ceiling and
 // real eviction. Without it a script issuing unique queries grows RSS until OOM.
-const MAX_ENTRIES = 500;
+const MAX_ENTRIES = 2000;
+
+// A fan-out like /api/discover mints ~240 short-lived per-item entries. Those must not be
+// able to evict the expensive long-lived AniList pages that produced them.
+const PROTECTED_PREFIXES = ["anilist:", "seerr:", "shoko:series", "jellyfin:series", "sonarr:series"];
+
+// Restarts used to drop every entry, which is how a rebuild loop hit AniList's rate limit.
+// anilist:page: keys embed the query variables, which include whatever the user typed into
+// search, so only the fixed discover/schedule shapes are persisted.
+const PERSIST_PREFIXES = ["anilist:media:", "anilist:schedule:", "seerr:tv:", "seerr:movie:"];
+const PERSIST_DENY = ["\"search\":"];
+
+// Upstreams that rate-limit stay angry for a while, so hold the stale value rather than
+// re-asking on every request.
+const STALE_RETRY_MS = 30 * 1000;
+
+// A snapshot is untrusted input: it lives on a writable volume and is read at boot.
+const MAX_RESTORED_TTL_MS = 24 * 60 * 60 * 1000;
+
+const snapshotPath = (process.env.CACHE_FILE || "").trim();
 
 function sweep() {
   const now = Date.now();
@@ -23,8 +37,11 @@ function evictOldest() {
   const overflow = store.size - MAX_ENTRIES;
   if (overflow <= 0) return;
 
-  const byExpiry = [...store.entries()].sort((a, b) => a[1].expires - b[1].expires);
-  for (let i = 0; i < overflow; i += 1) store.delete(byExpiry[i][0]);
+  const disposable = [...store.entries()]
+    .filter(([key]) => !PROTECTED_PREFIXES.some(prefix => key.startsWith(prefix)))
+    .sort((a, b) => a[1].expires - b[1].expires);
+
+  for (let i = 0; i < overflow && i < disposable.length; i += 1) store.delete(disposable[i][0]);
 }
 
 export function cached(key, ttlMs, producer) {
@@ -34,32 +51,43 @@ export function cached(key, ttlMs, producer) {
 
   const previous = hit?.settled;
 
-  const value = Promise.resolve()
+  // Identity matters: a slow producer must never mutate or delete a newer entry that replaced
+  // its own after the TTL rolled over.
+  const entry = { value: undefined, expires: now + ttlMs, settled: previous };
+
+  entry.value = Promise.resolve()
     .then(producer)
     .then(result => {
-      const entry = store.get(key);
-      if (entry) entry.settled = result;
+      if (store.get(key) === entry) entry.settled = result;
       return result;
     })
     .catch(err => {
-      store.delete(key);
-      // Serving the last good value beats blanking the page when an upstream rate-limits or
-      // blips. AniList in particular answers 429 for a full minute.
+      if (store.get(key) !== entry) throw err;
+
+      // Keep the last good value available instead of deleting the entry that holds it,
+      // which would make every following request re-hit the failing upstream.
       if (previous !== undefined) {
         console.warn(`[hikari] ${key}: ${err.message} — serving stale value`);
+        store.set(key, {
+          value: Promise.resolve(previous),
+          expires: Date.now() + STALE_RETRY_MS,
+          settled: previous
+        });
         return previous;
       }
+
+      store.delete(key);
       throw err;
     });
 
-  store.set(key, { value, expires: now + ttlMs, settled: previous });
+  store.set(key, entry);
 
   if (store.size > MAX_ENTRIES) {
     sweep();
     evictOldest();
   }
 
-  return value;
+  return entry.value;
 }
 
 export function invalidate(prefix) {
@@ -73,6 +101,7 @@ export function stats() {
 }
 
 function persistable(key) {
+  if (PERSIST_DENY.some(needle => key.includes(needle))) return false;
   return PERSIST_PREFIXES.some(prefix => key.startsWith(prefix));
 }
 
@@ -82,22 +111,29 @@ export function loadSnapshot() {
   let parsed;
   try {
     parsed = JSON.parse(readFileSync(snapshotPath, "utf8"));
-  } catch {
+  } catch (err) {
+    if (err.code !== "ENOENT") console.warn(`[hikari] ignoring cache snapshot: ${err.message}`);
     return 0;
   }
+
+  if (!parsed || typeof parsed !== "object" || typeof parsed.entries !== "object") return 0;
 
   const now = Date.now();
   let restored = 0;
 
-  for (const [key, entry] of Object.entries(parsed.entries || {})) {
-    if (!persistable(key) || entry.expires <= now) continue;
-    store.set(key, { value: Promise.resolve(entry.settled), expires: entry.expires, settled: entry.settled });
+  for (const [key, entry] of Object.entries(parsed.entries)) {
+    if (!persistable(key)) continue;
+    if (!entry || typeof entry !== "object" || typeof entry.expires !== "number") continue;
+    if (entry.settled === undefined || entry.expires <= now) continue;
+
+    const expires = Math.min(entry.expires, now + MAX_RESTORED_TTL_MS);
+    store.set(key, { value: Promise.resolve(entry.settled), expires, settled: entry.settled });
     restored += 1;
   }
   return restored;
 }
 
-export async function saveSnapshot() {
+export function saveSnapshot() {
   if (!snapshotPath) return 0;
 
   const entries = {};
@@ -106,12 +142,17 @@ export async function saveSnapshot() {
     entries[key] = { expires: entry.expires, settled: entry.settled };
   }
 
+  const count = Object.keys(entries).length;
+
   try {
     mkdirSync(dirname(snapshotPath), { recursive: true });
-    writeFileSync(snapshotPath, JSON.stringify({ savedAt: Date.now(), entries }));
+    // Write-then-rename so a crash mid-write cannot truncate the existing snapshot.
+    const temp = `${snapshotPath}.tmp`;
+    writeFileSync(temp, JSON.stringify({ savedAt: Date.now(), entries }), { mode: 0o600 });
+    renameSync(temp, snapshotPath);
   } catch (err) {
     console.warn(`[hikari] could not write cache snapshot: ${err.message}`);
     return 0;
   }
-  return Object.keys(entries).length;
+  return count;
 }

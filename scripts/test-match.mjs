@@ -1,10 +1,14 @@
 import { readFileSync } from "node:fs";
 import { normalize, similarity, usable, searchTitle, seasonOrdinal } from "../server/match.js";
+import { SONARR_MATCH_THRESHOLD } from "../server/sonarr.js";
+import { JELLYFIN_TITLE_THRESHOLD } from "../server/jellyfin.js";
 
 // Regression test for the title matcher. Runs the shipping thresholds against the labelled
 // fixtures and fails if precision or recall drops. Run: npm test
 
-const THRESHOLDS = { sonarr: 0.8, jellyfin: 0.7 };
+// Imported, not copied: a duplicated literal would let someone lower the shipping threshold
+// without failing this test.
+const THRESHOLDS = { sonarr: SONARR_MATCH_THRESHOLD, jellyfin: JELLYFIN_TITLE_THRESHOLD };
 const FLOORS = {
   sonarr: { precision: 1.0, recall: 1.0 },
   jellyfin: { precision: 0.95, recall: 0.95 }
@@ -70,8 +74,11 @@ let fixtures;
 try {
   fixtures = JSON.parse(readFileSync("fixtures/match-cases.json", "utf8"));
 } catch {
-  console.log("\nfixtures/match-cases.json missing — run scripts/build-match-fixtures.mjs to regenerate");
-  process.exit(failures > 0 ? 1 : 0);
+  console.log(
+    "\nFAIL  fixtures/match-cases.json is missing, so no precision or recall floor was checked." +
+      "\n      Run `npm run fixtures` against a live stack to regenerate it."
+  );
+  process.exit(1);
 }
 
 const best = (titles, target, alternates) => {
