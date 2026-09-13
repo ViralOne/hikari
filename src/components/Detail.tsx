@@ -1,5 +1,13 @@
-import { createMemo, createSignal, For, Loading, Show } from "solid-js";
-import { getAnime, postRequest, setSonarrSeriesType, type SeasonInfo } from "../api";
+import { createMemo, createSignal, For, Loading, onSettled, Show } from "solid-js";
+import {
+  ANILIST_STATUSES,
+  getAnime,
+  getList,
+  postRequest,
+  saveListEntry,
+  setSonarrSeriesType,
+  type SeasonInfo
+} from "../api";
 import { bytes, formatLabel, seasonLabel, statusLabel } from "../format";
 import { Icon } from "./Icon";
 
@@ -14,6 +22,7 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
   const [outcomes, setOutcomes] = createSignal<Record<number, Outcome>>({});
   const [requested, setRequested] = createSignal<Record<number, number[] | "all">>({});
   const [busy, setBusy] = createSignal(false);
+  const [writable, setWritable] = createSignal(false);
 
   const defaultSelection = (seasons: SeasonInfo[] | null | undefined, suggested: number | null | undefined): Selection => {
     if (!seasons || seasons.length === 0) return "all";
@@ -67,6 +76,25 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
     }
   };
 
+  const saveList = async (anilistId: number, payload: { status?: string; progress?: number }) => {
+    setBusy(true);
+    try {
+      const result = await saveListEntry(anilistId, payload);
+      setOutcomes(prev => ({
+        ...prev,
+        [props.id]: { ok: true, message: `AniList updated: ${result.entry.status}, episode ${result.entry.progress}.` }
+      }));
+      props.onRequested();
+    } catch (err) {
+      setOutcomes(prev => ({
+        ...prev,
+        [props.id]: { ok: false, message: err instanceof Error ? err.message : String(err) }
+      }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const submit = async (tmdbId: number, mediaType: string, selection: Selection, forceAnime: boolean) => {
     setBusy(true);
     try {
@@ -106,11 +134,59 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
     }
   };
 
+  // Move focus into the panel on open, keep Tab inside it, and hand focus back to whatever
+  // opened it on close. Without this a keyboard user tabs into the page behind the panel.
+  let panelRef: HTMLElement | undefined;
+  const opener = typeof document === "undefined" ? null : (document.activeElement as HTMLElement | null);
+
+  onSettled(() => {
+    panelRef?.focus();
+    // Whether AniList writes are permitted is server-side config, not something the UI knows.
+    getList()
+      .then(result => setWritable(Boolean(result.writable)))
+      .catch(() => setWritable(false));
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || !panelRef) return;
+
+      const focusable = [
+        ...panelRef.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      ].filter(element => element.offsetParent !== null);
+
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      } else if (event.shiftKey && (document.activeElement === first || document.activeElement === panelRef)) {
+        event.preventDefault();
+        last.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      opener?.focus?.();
+    };
+  });
+
   return (
     <>
       <div class="panel-scrim" onClick={() => props.onClose()} />
-      <aside class="panel">
-        <button class="panel-close" onClick={() => props.onClose()} aria-label="Close">
+      <aside
+        class="panel"
+        ref={element => (panelRef = element)}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Anime details"
+        tabindex="-1"
+      >
+        <button class="panel-close" onClick={() => props.onClose()} aria-label="Close details">
           ✕
         </button>
 
@@ -172,7 +248,9 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
 
                   <Show when={outcomes()[props.id]}>
                     {outcome => (
-                      <div class={["notice", outcome().ok ? "ok" : "bad"]}>{outcome().message}</div>
+                      <div class={["notice", outcome().ok ? "ok" : "bad"]} role="status" aria-live="polite">
+                        {outcome().message}
+                      </div>
                     )}
                   </Show>
 
@@ -276,6 +354,126 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                         <div class="hint">
                           From Jellyfin ({watch().name}), matched by {watch().via}.
                         </div>
+                      </div>
+                    )}
+                  </Show>
+
+                  <Show when={anime().list}>
+                    {entry => (
+                      <div class="box">
+                        <div class="box-head">
+                          <span class="box-title">AniList</span>
+                          <span class={["badge", entry().caughtUp ? "seen" : "watching"]}>
+                            {entry().statusLabel}
+                          </span>
+                        </div>
+                        <dl class="kv">
+                          <dt>Progress</dt>
+                          <dd>
+                            episode {entry().progress}
+                            {entry().total ? ` of ${entry().total}` : ""}
+                          </dd>
+                        </dl>
+                        <Show when={entry().updatedAt}>
+                          {updated => (
+                            <dl class="kv">
+                              <dt>Last updated</dt>
+                              <dd>{new Date(updated() * 1000).toLocaleDateString()}</dd>
+                            </dl>
+                          )}
+                        </Show>
+                        <Show
+                          when={anime().watch && anime().watch!.played > entry().progress}
+                        >
+                          <div class="notice warn">
+                            Jellyfin has {anime().watch!.played} episodes watched but AniList only has{" "}
+                            {entry().progress}. Ani-Sync may have missed some.
+                            <Show when={writable()}>
+                              {" "}
+                              Use the buttons below to correct it.
+                            </Show>
+                          </div>
+                        </Show>
+                        <Show
+                          when={writable()}
+                          fallback={
+                            <div class="hint">
+                              Read-only. Set ANILIST_ALLOW_WRITES=true to change status from here.
+                            </div>
+                          }
+                        >
+                          <div class="chips">
+                            <For each={ANILIST_STATUSES}>
+                              {option => (
+                                <button
+                                  class={["btn", "tiny", entry().status === option.value ? "primary" : "ghost"]}
+                                  disabled={busy() || entry().status === option.value}
+                                  onClick={() => saveList(anime().id, { status: option.value })}
+                                >
+                                  {option.label}
+                                </button>
+                              )}
+                            </For>
+                          </div>
+                          <Show when={anime().watch && anime().watch!.played > entry().progress}>
+                            <button
+                              class="btn"
+                              disabled={busy()}
+                              onClick={() =>
+                                saveList(anime().id, { progress: anime().watch!.played })
+                              }
+                            >
+                              Set progress to {anime().watch!.played} (from Jellyfin)
+                            </button>
+                          </Show>
+                        </Show>
+                      </div>
+                    )}
+                  </Show>
+
+                  <Show when={anime().shoko}>
+                    {info => (
+                      <div class="box">
+                        <div class="box-head">
+                          <span class="box-title">Shoko / AniDB</span>
+                          <span class="badge">matched by {info().via}</span>
+                        </div>
+                        <dl class="kv">
+                          <dt>Episodes</dt>
+                          <dd>
+                            {info().onDisk} of {info().totalEpisodes} on disk
+                            <Show when={info().missing > 0}>
+                              <span class="dim"> · {info().missing} missing</span>
+                            </Show>
+                          </dd>
+                        </dl>
+                        <Show when={info().files?.missing?.length}>
+                          <div class="notice warn">
+                            Missing episodes: {info().files!.missing.join(", ")}
+                          </div>
+                        </Show>
+                        <Show when={info().files?.groups?.length}>
+                          <dl class="kv">
+                            <dt>Release groups</dt>
+                            <dd>
+                              {info()
+                                .files!.groups.map(group => `${group.name} (${group.count})`)
+                                .join(", ")}
+                            </dd>
+                          </dl>
+                        </Show>
+                        <Show when={info().files?.mixedGroups}>
+                          <div class="hint">
+                            More than one release group in this season, so encoding and subtitle style
+                            may change between episodes.
+                          </div>
+                        </Show>
+                        <Show when={info().sources.length}>
+                          <dl class="kv">
+                            <dt>Sources</dt>
+                            <dd>{info().sources.map(source => `${source.name} (${source.count})`).join(", ")}</dd>
+                          </dl>
+                        </Show>
                       </div>
                     )}
                   </Show>

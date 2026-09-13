@@ -4,9 +4,25 @@ import { countdown, formatLabel, seasonLabel } from "../format";
 import { LibraryBadge, ScoreBadge, WatchBadge, WatchBar } from "./Badges";
 
 export function Card(props: { anime: Anime; onOpen: (id: number) => void }) {
+  // Without an explicit label the accessible name is the concatenation of every badge and
+  // hover-only line, e.g. "In library84%Studio BindTV · 14 epEp 12 in 5h 1mMushoku Tensei…".
+  const label = () => {
+    const parts = [props.anime.title.display, seasonLabel(props.anime.season, props.anime.seasonYear)];
+    if (props.anime.watch?.started) {
+      parts.push(
+        props.anime.watch.finished
+          ? "watched"
+          : `${props.anime.watch.played} of ${props.anime.watch.total ?? props.anime.watch.onDisk} episodes watched`
+      );
+    } else if (props.anime.library) {
+      parts.push("in library");
+    }
+    return parts.join(", ");
+  };
+
   return (
-    <button class="card" onClick={() => props.onOpen(props.anime.id)}>
-      <div class="card-art">
+    <button class="card" onClick={() => props.onOpen(props.anime.id)} aria-label={label()}>
+      <div class="card-art" aria-hidden="true">
         <Show when={props.anime.cover} fallback={<div class="skeleton" style={{ height: "100%" }} />}>
           {cover => <img src={cover()} alt="" loading="lazy" decoding="async" />}
         </Show>
@@ -37,7 +53,7 @@ export function Card(props: { anime: Anime; onOpen: (id: number) => void }) {
         </div>
       </div>
 
-      <div>
+      <div aria-hidden="true">
         <div class="card-title">{props.anime.title.display}</div>
         <div class="card-sub">{seasonLabel(props.anime.season, props.anime.seasonYear)}</div>
       </div>

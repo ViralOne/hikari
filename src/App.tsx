@@ -53,7 +53,10 @@ export function App() {
 
   return (
     <div class="app">
-      <nav class="sidebar">
+      <a class="skip-link" href="#content">
+        Skip to content
+      </a>
+      <nav class="sidebar" aria-label="Sections">
         <div class="brand">
           <div class="brand-mark" />
           <div>
@@ -68,6 +71,7 @@ export function App() {
               <button
                 class={["nav-item", { active: view() === item.id }]}
                 onClick={() => setView(item.id)}
+                aria-current={view() === item.id ? "page" : undefined}
               >
                 <Icon name={item.icon} />
                 {item.label}
@@ -80,8 +84,11 @@ export function App() {
           <For each={services()}>
             {service => (
               <div class="svc" title={service.detail}>
-                <i class={["dot", { ok: service.ok, bad: service.configured && !service.ok }]} />
+                <i class={["dot", { ok: service.ok, bad: service.configured && !service.ok }]} aria-hidden="true" />
                 {service.name}
+                <span class="visually-hidden">
+                  {service.configured ? (service.ok ? "connected" : "error") : "not configured"}: {service.detail}
+                </span>
               </div>
             )}
           </For>
@@ -91,7 +98,7 @@ export function App() {
         </div>
       </nav>
 
-      <main class="main">
+      <main class="main" id="content" tabindex="-1">
         <Errored
           fallback={(error, reset) => (
             <div class="empty">

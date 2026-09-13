@@ -84,9 +84,42 @@ export type Anime = {
   siteUrl: string;
   library?: LibraryMatch | null;
   watch?: Watch | null;
+  list?: ListEntry | null;
+  shoko?: ShokoInfo | null;
+  isMovie?: boolean;
 };
 
 export type SeerrLinks = { media: string | null; search: string | null };
+
+export type ListEntry = {
+  entryId: number;
+  status: string;
+  statusLabel: string;
+  progress: number;
+  total: number | null;
+  score: number;
+  repeat: number;
+  updatedAt: number | null;
+  caughtUp: boolean;
+};
+
+export type ShokoInfo = {
+  shokoId: number;
+  name: string;
+  anidbId: number | null;
+  malIds: number[];
+  onDisk: number;
+  missing: number;
+  totalEpisodes: number;
+  watched: number;
+  sources: Array<{ name: string; count: number }>;
+  via: string;
+  files?: {
+    missing: number[];
+    groups: Array<{ name: string; count: number }>;
+    mixedGroups: boolean;
+  } | null;
+};
 
 export type Routing = {
   server: string;
@@ -106,6 +139,9 @@ export type AnimeDetail = Anime & {
   request: RequestMatch | null;
   routing: Routing | null;
   watch: Watch | null;
+  list: ListEntry | null;
+  shoko: ShokoInfo | null;
+  isMovie: boolean;
   links: SeerrLinks;
 };
 
@@ -203,6 +239,36 @@ export function postRequest(payload: {
     status: number;
     forcedAnime: { profileId: number; rootFolder: string } | null;
   }>("/api/request", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export const ANILIST_STATUSES = [
+  { value: "CURRENT", label: "Watching" },
+  { value: "PLANNING", label: "Planning" },
+  { value: "COMPLETED", label: "Completed" },
+  { value: "PAUSED", label: "Paused" },
+  { value: "DROPPED", label: "Dropped" },
+  { value: "REPEATING", label: "Rewatching" }
+];
+
+export function getList(status?: string) {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  return json<{
+    configured: boolean;
+    writable?: boolean;
+    user?: { id: number; name: string; siteUrl: string };
+    entries: Array<ListEntry & { anilistId: number }>;
+  }>(`/api/list${query}`);
+}
+
+export function saveListEntry(
+  anilistId: number,
+  payload: { status?: string; progress?: number; score?: number }
+) {
+  return json<{ ok: true; entry: { status: string; progress: number } }>(`/api/list/${anilistId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
