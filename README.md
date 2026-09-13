@@ -87,6 +87,35 @@ docker compose up -d --build
 Open `http://localhost:7997`. The sidebar shows a status dot per service; hover one to see the
 detected version or the error.
 
+### Running it on the same host as your other services
+
+If Sonarr, Jellyfin and the rest already run in Docker on one machine, put Hikari on the same
+network so it can reach them by their internal addresses:
+
+```yaml
+services:
+  hikari:
+    build: .
+    container_name: hikari
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "7997:7997"
+    volumes:
+      - ./cache:/cache          # keeps the AniList cache across rebuilds
+    networks:
+      media_network:
+        ipv4_address: 10.0.0.30 # a free address on that network
+
+networks:
+  media_network:
+    external: true
+    name: media_network         # the network your other containers already use
+```
+
+Then point `.env` at the internal addresses (`http://10.0.0.13:8989`) and set
+`JELLYSEERR_PUBLIC_URL` to the address your *browser* uses, so "Open in Jellyseerr" links work.
+
 ### Running without Docker
 
 ```bash
@@ -221,6 +250,10 @@ widget. The whole payload is cached, so polling it does not hit your services.
   "pendingRequests": 0
 }
 ```
+
+The URL must be reachable **from Homepage's own container**, not from your browser. On a shared
+Docker network use Hikari's address on that network; `localhost` will not work. If Homepage reports
+`EHOSTUNREACH`, Hikari is not running at that address yet.
 
 Add to `services.yaml`:
 
