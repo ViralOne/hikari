@@ -59,6 +59,12 @@ async function gql(query, variables, attempt = 0) {
   return body.data;
 }
 
+// Same transport, but requires the token. Used for list reads and writes.
+export async function gqlAuthed(query, variables) {
+  if (!config.anilist.token) throw new Error("No AniList token configured");
+  return gql(query, variables);
+}
+
 export function currentSeason(date = new Date()) {
   const month = date.getUTCMonth();
   const season = month < 3 ? "WINTER" : month < 6 ? "SPRING" : month < 9 ? "SUMMER" : "FALL";

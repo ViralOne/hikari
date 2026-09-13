@@ -12,6 +12,9 @@ import * as seerr from "./jellyseerr.js";
 import * as sonarr from "./sonarr.js";
 import * as qbit from "./qbit.js";
 import * as jellyfin from "./jellyfin.js";
+import * as radarr from "./radarr.js";
+import * as shoko from "./shoko.js";
+import * as anilistList from "./anilist-list.js";
 
 const app = new Hono();
 
@@ -31,6 +34,7 @@ app.use("/api/*", async (c, next) => {
 // same posture as the rest of the stack, but the port must then stay off the internet.
 app.use("/api/request", requireToken);
 app.use("/api/sonarr/*", requireToken);
+app.use("/api/list/*", requireToken);
 
 async function requireToken(c, next) {
   if (c.req.method === "GET" || !config.token) return next();
@@ -55,12 +59,22 @@ app.onError((err, c) => {
 
 async function annotate(media) {
   const list = Array.isArray(media) ? media : [media];
+  const listIndex = await anilistList.listIndex().catch(() => new Map());
   const enriched = await Promise.all(
     list.map(async item => {
       if (!item) return item;
-      const library = await sonarr.findMatch(item);
-      const watch = await jellyfin.progressFor(item, library).catch(() => null);
-      return { ...item, library, watch };
+
+      const [library, shokoInfo] = await Promise.all([
+        sonarr.findMatch(item),
+        shoko.infoFor(item).catch(() => null)
+      ]);
+
+      const [watch, movie] = await Promise.all([
+        jellyfin.progressFor(item, library, shokoInfo).catch(() => null),
+        radarr.findMatch(item).catch(() => null)
+      ]);
+
+      return { ...item, library: library || movie, isMovie: Boolean(movie), shoko: shokoInfo, watch, list: listIndex.get(item.id) || null };
     })
   );
   return Array.isArray(media) ? enriched : enriched[0];
@@ -78,21 +92,27 @@ app.get("/api/health", async c => {
     }
   };
 
-  const [jellyseerr, sonarrCheck, qbitCheck, jellyfinCheck, anilistCheck] = await Promise.all([
+  const [jellyseerr, sonarrCheck, radarrCheck, qbitCheck, jellyfinCheck, shokoCheck, listCheck, anilistCheck] = await Promise.all([
     probe("jellyseerr", enabled.jellyseerr, async () => `v${(await seerr.status()).version}`),
     probe("sonarr", enabled.sonarr, async () => `${(await sonarr.series()).length} series`),
+    probe("radarr", enabled.radarr, () => radarr.version()),
     probe("qbittorrent", enabled.qbit, () => qbit.version()),
     // Deliberately cheap: seriesIndex() is a full recursive Jellyfin listing and health is
     // polled every 60s, which would re-index forever from a single idle tab.
     probe("jellyfin", enabled.jellyfin, async () => `v${(await jellyfin.systemInfo()).Version}`),
+    probe("shoko", enabled.shoko, async () => `${(await shoko.seriesIndex()).byAnidb.size} series`),
+    probe("anilist list", enabled.anilistList, async () => (await anilistList.viewer()).name),
     probe("anilist", true, async () => `${(await anilist.page({ sort: ["TRENDING_DESC"], perPage: 1 })).media.length} ok`)
   ]);
 
   Object.assign(checks, {
     jellyseerr,
     sonarr: sonarrCheck,
+    radarr: radarrCheck,
     qbittorrent: qbitCheck,
     jellyfin: jellyfinCheck,
+    shoko: shokoCheck,
+    anilistList: listCheck,
     anilist: anilistCheck
   });
   return c.json({ ok: Object.values(checks).every(x => x.ok || !x.configured), checks });
@@ -182,16 +202,26 @@ app.get("/api/anime/:id", async c => {
     enabled.jellyseerr ? seerr.resolve(anime).catch(err => ({ matched: false, error: err.message })) : Promise.resolve(null)
   ]);
 
+  const shokoInfo = await shoko.infoFor(anime, request?.tmdbId).catch(() => null);
+  const [movie, listEntry, files] = await Promise.all([
+    radarr.findMatch(anime, request?.tmdbId).catch(() => null),
+    anilistList.entryFor(anime.id).catch(() => null),
+    shokoInfo ? shoko.fileDetail(shokoInfo.shokoId).catch(() => null) : Promise.resolve(null)
+  ]);
+
   const [routing, watch] = await Promise.all([
     describeRouting(request).catch(() => null),
-    jellyfin.progressFor(anime, library).catch(() => null)
+    jellyfin.progressFor(anime, library, shokoInfo).catch(() => null)
   ]);
 
   const episodes = watch ? await jellyfin.episodeProgress(watch.ids).catch(() => null) : null;
 
   return c.json({
     ...anime,
-    library,
+    library: library || movie,
+    isMovie: Boolean(movie),
+    shoko: shokoInfo ? { ...shokoInfo, files } : null,
+    list: listEntry,
     request,
     routing,
     watch: watch ? { ...watch, episodes } : null,
@@ -277,6 +307,38 @@ app.post("/api/request", async c => {
     media: created.media?.status ?? null,
     forcedAnime: forced
   });
+});
+
+app.get("/api/list", async c => {
+  const me = await anilistList.viewer();
+  if (!me) return c.json({ configured: false, entries: [] });
+
+  const index = await anilistList.listIndex();
+  const status = c.req.query("status");
+
+  const entries = [...index.entries()]
+    .map(([anilistId, entry]) => ({ anilistId, ...entry }))
+    .filter(entry => (status ? entry.status === status : true))
+    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+
+  return c.json({ configured: true, user: me, writable: config.anilist.allowWrites, entries });
+});
+
+app.post("/api/list/:anilistId", async c => {
+  const anilistId = Number(c.req.param("anilistId"));
+  if (!Number.isInteger(anilistId) || anilistId <= 0) {
+    return c.json({ error: "anilistId must be a positive integer" }, 400);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const saved = await anilistList.saveEntry({
+    mediaId: anilistId,
+    status: body.status,
+    progress: body.progress,
+    score: body.score
+  });
+
+  return c.json({ ok: true, entry: saved });
 });
 
 // Sonarr's seriesType cannot be set through Jellyseerr, so it is repaired here.

@@ -36,6 +36,7 @@ export function seriesIndex() {
     );
 
     const byAniList = new Map();
+    const byAnidb = new Map();
     const byTvdb = new Map();
     const byPath = new Map();
     const byTitle = [];
@@ -49,6 +50,7 @@ export function seriesIndex() {
         name: item.Name,
         path: item.Path || null,
         anilistId: providers.AniList ? Number(providers.AniList) : null,
+        anidbId: providers.AniDB ? Number(providers.AniDB) : null,
         tvdbId: providers.Tvdb ? Number(providers.Tvdb) : null,
         percent: Math.round(data.PlayedPercentage ?? 0),
         unplayed: data.UnplayedItemCount ?? 0,
@@ -57,6 +59,7 @@ export function seriesIndex() {
       };
 
       if (entry.anilistId) push(byAniList, entry.anilistId, entry);
+      if (entry.anidbId) push(byAnidb, entry.anidbId, entry);
       if (entry.tvdbId) push(byTvdb, entry.tvdbId, entry);
       if (entry.path) push(byPath, entry.path.replace(/\/+$/, ""), entry);
 
@@ -66,7 +69,7 @@ export function seriesIndex() {
       }
     }
 
-    return { byAniList, byTvdb, byPath, byTitle };
+    return { byAniList, byAnidb, byTvdb, byPath, byTitle };
   });
 }
 
@@ -77,14 +80,14 @@ function push(map, key, value) {
 }
 
 // Cheap lookup used for every card. Exact ids first, then the Sonarr path, then titles.
-export function progressFor(anime, library) {
+export function progressFor(anime, library, shoko) {
   if (!enabled.jellyfin) return Promise.resolve(null);
-  return cached(`jellyfin:progress:${anime.id}:${library?.id ?? 0}`, 60 * 1000, () =>
-    computeProgress(anime, library)
+  return cached(`jellyfin:progress:${anime.id}:${library?.id ?? 0}:${shoko?.anidbId ?? 0}`, 60 * 1000, () =>
+    computeProgress(anime, library, shoko)
   );
 }
 
-async function computeProgress(anime, library) {
+async function computeProgress(anime, library, shoko) {
   let index;
   try {
     index = await seriesIndex();
@@ -94,6 +97,13 @@ async function computeProgress(anime, library) {
 
   let matches = index.byAniList.get(anime.id) || null;
   let via = matches ? "anilist" : null;
+
+  // Shokofin sometimes tags an item with only an AniDB id. Shoko bridges AniList's idMal to
+  // that AniDB id, which keeps the match exact instead of falling back to a path guess.
+  if (!matches && shoko?.anidbId) {
+    matches = index.byAnidb.get(Number(shoko.anidbId)) || null;
+    via = matches ? "anidb" : null;
+  }
 
   if (!matches && library?.tvdbId) {
     matches = index.byTvdb.get(library.tvdbId) || null;
@@ -129,7 +139,7 @@ async function computeProgress(anime, library) {
 
   // How long the season actually is, and how much of it has aired. Jellyfin only knows
   // what is on disk, so these come from AniList and are what "11 of 13" needs.
-  const total = anime.episodes ?? null;
+  const total = shoko?.totalEpisodes || anime.episodes || null;
   const aired = anime.nextEpisode
     ? Math.max(anime.nextEpisode.episode - 1, 0)
     : anime.status === "FINISHED"
@@ -139,7 +149,7 @@ async function computeProgress(anime, library) {
   // Only an AniList-id match is guaranteed to be this exact entry. A tvdb/path/title match can
   // be a whole multi-season series, and mixing its episode totals with AniList's per-season
   // count produces nonsense like "60 of 25".
-  const scoped = via === "anilist";
+  const scoped = via === "anilist" || via === "anidb";
 
   return {
     via,
