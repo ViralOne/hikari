@@ -744,8 +744,18 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                           <dt>Episodes</dt>
                           <dd>
                             {info().onDisk} of {info().totalEpisodes} on disk
+                            {/* Shoko calls these missing, which is only true from its own side.
+                                Say counted instead when the files are demonstrably there. */}
                             <Show when={info().missing > 0}>
-                              <span class="dim"> · {info().missing} missing</span>
+                              <span class="dim">
+                                {" "}
+                                ·{" "}
+                                {(info().report?.counts.onDiskUnlinked ?? 0) +
+                                  (info().report?.counts.onDiskNotHashed ?? 0) ===
+                                info().missing
+                                  ? `${info().missing} not counted`
+                                  : `${info().missing} missing`}
+                              </span>
                             </Show>
                           </dd>
                         </dl>
@@ -764,8 +774,11 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                         >
                           {report => (
                             <div class="plan">
+                              {/* Not "without a file": most of these have a file, Shoko just is not
+                                  using it, and the two readings together look like a contradiction. */}
                               <div class="box-title">
-                                {report().rows.length} episode{report().rows.length === 1 ? "" : "s"} without a file
+                                {report().rows.length} episode{report().rows.length === 1 ? "" : "s"} Shoko is not
+                                counting
                               </div>
 
                               <For each={report().rows}>
@@ -776,9 +789,9 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                                       {row.state === "not-downloaded"
                                         ? "not downloaded"
                                         : row.state === "on-disk-unlinked"
-                                          ? "on disk, not linked to AniDB"
+                                          ? "downloaded · not linked in Shoko"
                                           : row.state === "on-disk-not-hashed"
-                                            ? "on disk, Shoko has not scanned it"
+                                            ? "downloaded · Shoko has not scanned it"
                                             : row.state === "not-aired"
                                               ? "not aired yet"
                                               : (row.detail ?? "unresolved")}
