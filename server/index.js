@@ -553,6 +553,13 @@ async function repairTarget(anilistId, fileId) {
   return { row };
 }
 
+app.post("/api/jellyfin/refresh", async c => {
+  if (!enabled.jellyfin) return c.json({ error: "Jellyfin is not configured" }, 503);
+  const result = await jellyfin.refreshLibrary();
+  console.log("[hikari] queued a Jellyfin library scan");
+  return c.json({ ok: true, ...result });
+});
+
 // Collection-wide Shoko maintenance. The per-file buttons fix one episode; these fix the class.
 app.post("/api/shoko/action/:name", async c => {
   if (!enabled.shoko) return c.json({ error: "Shoko is not configured" }, 503);

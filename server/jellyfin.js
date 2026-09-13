@@ -211,6 +211,19 @@ export async function episodeItems(seriesIds) {
   return items.sort((a, b) => (a.season ?? 0) - (b.season ?? 0) || (a.episode ?? 0) - (b.episode ?? 0));
 }
 
+// Shokofin only exposes newly linked files after Jellyfin scans the library, and its live
+// SignalR connection is off by default, so linking a file in Shoko otherwise waits for the
+// 12-hourly Scan Media Library task.
+export async function refreshLibrary() {
+  await request("jellyfin", `${config.jellyfin.url}/Library/Refresh`, {
+    method: "POST",
+    headers: headers(),
+    timeout: 30000
+  });
+  invalidate("jellyfin:");
+  return { queued: true };
+}
+
 // Marks an item played for the configured user. Jellyfin 12 dropped /Users/{id}/PlayedItems.
 export async function markPlayed(itemId) {
   const user = await userId();

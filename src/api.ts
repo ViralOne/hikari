@@ -319,6 +319,15 @@ export function saveListEntry(
   });
 }
 
+/** Shokofin only exposes newly linked files after Jellyfin scans, so this closes the loop. */
+export function refreshJellyfinLibrary() {
+  return json<{ ok: true; queued: boolean }>("/api/jellyfin/refresh", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}"
+  });
+}
+
 export type ShokoAction = "refresh-anidb" | "forget-deleted" | "import-new";
 
 export function runShokoAction(action: ShokoAction) {

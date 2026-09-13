@@ -7,6 +7,7 @@ import {
   linkShokoFile,
   markJellyfinPlayed,
   postRequest,
+  refreshJellyfinLibrary,
   rescanShokoFile,
   runShokoAction,
   saveListEntry,
@@ -161,6 +162,28 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
         }
       }));
       props.onRequested();
+    } catch (err) {
+      setOutcomes(prev => ({
+        ...prev,
+        [props.id]: { ok: false, message: err instanceof Error ? err.message : String(err) }
+      }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const refreshJellyfin = async () => {
+    setBusy(true);
+    try {
+      await refreshJellyfinLibrary();
+      setOutcomes(prev => ({
+        ...prev,
+        [props.id]: {
+          ok: true,
+          message:
+            "Jellyfin is scanning its libraries. Newly linked episodes appear once it finishes, which takes a few minutes on a large library."
+        }
+      }));
     } catch (err) {
       setOutcomes(prev => ({
         ...prev,
@@ -844,6 +867,16 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                                     onClick={() => shokoAction("import-new")}
                                   >
                                     Import new files
+                                  </button>
+                                  {/* Linking in Shoko is not enough on its own: Shokofin only
+                                      exposes the file after Jellyfin scans the library. */}
+                                  <button
+                                    class="btn tiny ghost"
+                                    disabled={busy()}
+                                    title="Make Jellyfin pick up newly linked files now instead of at its next 12-hourly scan"
+                                    onClick={() => refreshJellyfin()}
+                                  >
+                                    Scan Jellyfin library
                                   </button>
                                 </div>
                               </Show>
