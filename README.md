@@ -50,6 +50,11 @@ Episodes are matched to Sonarr by **air date**, because AniDB numbers a split co
 Sonarr keeps TVDB's numbering. Anything that does not resolve to exactly one Sonarr episode is
 reported and left alone.
 
+An unlinked file is invisible to Jellyfin, because Shokofin builds its virtual file system from
+Shoko's *linked* files — so this is not only a wrong count, those episodes cannot be played. Link
+all of a title's files in one click, retry AniDB across the whole collection, clear database rows
+for files that no longer exist, then scan the anime library so Jellyfin picks them up.
+
 **Repairing watch state**
 Jellyfin keys played flags to item ids, so when Shokofin rebuilds its virtual file system it
 creates new items and the entire watch history is orphaned — a season you finished reads as 0.
@@ -202,6 +207,7 @@ Every variable goes in `.env`. Anything left blank disables its feature rather t
 | `JELLYFIN_URL` | no | Base URL of Jellyfin |
 | `JELLYFIN_API_KEY` | no | Jellyfin API key |
 | `JELLYFIN_USER_ID` | no | Whose watch progress to show. Defaults to the first administrator |
+| `JELLYFIN_LIBRARY_ID` | no | Which library the "scan anime library" action targets. Detected automatically if unset |
 | `QBIT_URL` | no | Base URL of the qBittorrent Web UI |
 | `QBIT_USER` | no | qBittorrent username |
 | `QBIT_PASS` | no | qBittorrent password |
@@ -354,7 +360,10 @@ Add to `services.yaml`:
 | `POST /api/list/:anilistId` | `{ status, progress, score }`. Requires `ANILIST_ALLOW_WRITES=true` |
 | `POST /api/shoko/rescan/:anilistId/:fileId` | Asks AniDB about an unmatched file again |
 | `POST /api/shoko/link/:anilistId/:fileId` | Links an unmatched file to its AniDB episode |
+| `POST /api/shoko/link-all/:anilistId` | Links every unmatched file of one title to its episode |
+| `POST /api/shoko/action/:name` | `refresh-anidb`, `forget-deleted` or `import-new` |
 | `POST /api/jellyfin/played/:anilistId` | Marks episodes played up to `{ upTo }`. Only searches after `{"confirm":true}` |
+| `POST /api/jellyfin/refresh` | Scans the anime library so newly linked files appear |
 | `GET /api/activity` | Sonarr queue, torrents, recent requests, and per-section errors |
 | `GET /api/homepage` | Flat counters for a dashboard widget |
 
