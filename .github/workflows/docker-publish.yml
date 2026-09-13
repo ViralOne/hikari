@@ -28,7 +28,7 @@ jobs:
       id-token: write
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # github.repository keeps its original casing and Docker rejects uppercase in an image
       # name, so lowercase it explicitly rather than relying on the registry to be forgiving.
