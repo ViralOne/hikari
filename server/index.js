@@ -15,6 +15,8 @@ import * as jellyfin from "./jellyfin.js";
 import * as radarr from "./radarr.js";
 import * as shoko from "./shoko.js";
 import * as anilistList from "./anilist-list.js";
+import * as autolink from "./autolink.js";
+import { withinADay } from "./dates.js";
 
 const app = new Hono();
 
@@ -37,11 +39,18 @@ app.use("/api/sonarr/*", requireToken);
 app.use("/api/list/*", requireToken);
 app.use("/api/shoko/*", requireToken);
 app.use("/api/jellyfin/*", requireToken);
+app.use("/api/autolink", requireToken);
+app.use("/api/hooks/*", requireToken);
 
 async function requireToken(c, next) {
   if (c.req.method === "GET" || !config.token) return next();
 
-  const provided = c.req.header("authorization")?.replace(/^Bearer\s+/i, "") || c.req.header("x-hikari-token");
+  // A query token is accepted because Sonarr's webhook cannot send custom headers. It ends up
+  // in access logs, so it is only worth using on the hook route.
+  const provided =
+    c.req.header("authorization")?.replace(/^Bearer\s+/i, "") ||
+    c.req.header("x-hikari-token") ||
+    c.req.query("token");
   if (provided !== config.token) return c.json({ error: "unauthorized" }, 401);
   return next();
 }
@@ -508,12 +517,6 @@ export async function missingReport(anilistId) {
   };
 }
 
-function withinADay(sonarrDate, anidbDate) {
-  if (!sonarrDate) return false;
-  const diff = Math.abs(Date.parse(`${sonarrDate}T00:00:00Z`) - Date.parse(`${anidbDate}T00:00:00Z`));
-  return Number.isFinite(diff) && diff <= 24 * 60 * 60 * 1000;
-}
-
 app.post("/api/sonarr/missing/:anilistId", async c => {
   const anilistId = Number(c.req.param("anilistId"));
   if (!Number.isInteger(anilistId) || anilistId <= 0) {
@@ -552,6 +555,32 @@ async function repairTarget(anilistId, fileId) {
   }
   return { row };
 }
+
+app.get("/api/autolink", c => c.json(autolink.status()));
+
+// Manual run. Defaults to a dry run so you can see what it would link before it does.
+app.post("/api/autolink", async c => {
+  const body = await c.req.json().catch(() => ({}));
+  const result = await autolink.sweep({ apply: body.confirm === true });
+  return c.json(result);
+});
+
+// Sonarr's Connect webhook. Sonarr fires this the moment an import finishes, which is before
+// Shoko has hashed the file, so this only nudges Shoko to import and marks the next sweep as
+// worth running. The linking itself still waits for the grace period.
+app.post("/api/hooks/sonarr", async c => {
+  const body = await c.req.json().catch(() => ({}));
+  const event = body.eventType || "unknown";
+
+  if (event === "Test") return c.json({ ok: true, event, note: "webhook reachable" });
+  if (!["Download", "DownloadFolderImported", "Rename", "Upgrade"].includes(event)) {
+    return c.json({ ok: true, event, ignored: true });
+  }
+
+  const result = await autolink.onImport();
+  console.log(`[hikari] sonarr hook: ${event} ${body.series?.title ?? ""}`.trim());
+  return c.json({ ok: true, event, ...result });
+});
 
 app.post("/api/jellyfin/refresh", async c => {
   if (!enabled.jellyfin) return c.json({ error: "Jellyfin is not configured" }, 503);
@@ -870,4 +899,5 @@ serve({ fetch: app.fetch, port: config.port, hostname: config.host }, info => {
   }
   const snapshot = cacheStats().snapshot;
   if (snapshot) console.log(`[hikari]   cache snapshot ${snapshot} (${restored} entries restored)`);
+  autolink.start();
 });

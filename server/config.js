@@ -41,7 +41,17 @@ export const config = {
     // Writing to your AniList list stays off unless you ask for it.
     allowWrites: /^(1|true|yes)$/i.test((process.env.ANILIST_ALLOW_WRITES || "").trim())
   },
-  animeRoot: trim(process.env.ANIME_ROOT, "/data/anime")
+  animeRoot: trim(process.env.ANIME_ROOT, "/data/anime"),
+  // Links files Shoko hashed but AniDB never matched, so Jellyfin can see them. Off by default
+  // because it writes to Shoko on its own.
+  autoLink: {
+    enabled: /^(1|true|yes)$/i.test((process.env.AUTO_LINK || "").trim()),
+    intervalMinutes: Number(process.env.AUTO_LINK_INTERVAL_MINUTES || 60),
+    // How long a file is left for AniDB before Hikari links it by hand. An AniDB match brings
+    // metadata a hand link does not, and unregistered releases are often added within a day.
+    graceHours: Number(process.env.AUTO_LINK_GRACE_HOURS || 6),
+    maxPerRun: Number(process.env.AUTO_LINK_MAX_PER_RUN || 20)
+  }
 };
 
 export const enabled = {

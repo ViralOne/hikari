@@ -27,7 +27,9 @@ export function version() {
 // specials and split cours correctly where TMDB does not. One call carries every series
 // plus its sizes, so this stays cheap.
 export function seriesIndex() {
-  if (!enabled.shoko) return Promise.resolve({ byMal: new Map(), byAnidb: new Map(), byTmdb: new Map() });
+  if (!enabled.shoko) {
+    return Promise.resolve({ byMal: new Map(), byAnidb: new Map(), byTmdb: new Map(), byTvdb: new Map() });
+  }
 
   return cached("shoko:series", 5 * 60 * 1000, async () => {
     // Shoko rejects pageSize above 100, so walk the pages.
@@ -43,6 +45,7 @@ export function seriesIndex() {
     const byMal = new Map();
     const byAnidb = new Map();
     const byTmdb = new Map();
+    const byTvdb = new Map();
 
     for (const item of items) {
       const ids = item.IDs || {};
@@ -75,9 +78,10 @@ export function seriesIndex() {
       for (const mal of entry.malIds) byMal.set(Number(mal), entry);
       if (entry.anidbId) byAnidb.set(Number(entry.anidbId), entry);
       for (const tmdb of entry.tmdbShowIds) byTmdb.set(Number(tmdb), entry);
+      for (const tvdb of entry.tvdbIds) byTvdb.set(Number(tvdb), entry);
     }
 
-    return { byMal, byAnidb, byTmdb };
+    return { byMal, byAnidb, byTmdb, byTvdb };
   });
 }
 
@@ -122,19 +126,28 @@ export function fileIndex() {
     }
 
     const byTail = new Map();
-    let unlinked = 0;
+    const unlinkedFiles = [];
 
     for (const file of files) {
       const linked = (file.SeriesIDs || []).length > 0;
-      if (!linked) unlinked += 1;
 
       for (const location of file.Locations || []) {
+        const entry = {
+          fileId: file.ID,
+          linked,
+          size: file.Size ?? 0,
+          path: location.RelativePath,
+          // When Shoko first saw the file. The automatic linker uses it to leave new files
+          // alone for a while, so AniDB gets its chance before anything is linked by hand.
+          created: file.Created ?? null
+        };
         const tail = pathTail(location.RelativePath);
-        if (tail) byTail.set(tail, { fileId: file.ID, linked, size: file.Size ?? 0, path: location.RelativePath });
+        if (tail) byTail.set(tail, entry);
+        if (!linked) unlinkedFiles.push(entry);
       }
     }
 
-    return { total: files.length, unlinked, byTail };
+    return { total: files.length, unlinked: unlinkedFiles.length, unlinkedFiles, byTail };
   });
 }
 

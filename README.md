@@ -55,6 +55,25 @@ Shoko's *linked* files — so this is not only a wrong count, those episodes can
 all of a title's files in one click, retry AniDB across the whole collection, clear database rows
 for files that no longer exist, then scan the anime library so Jellyfin picks them up.
 
+**Keeping links up to date automatically**
+Set `AUTO_LINK=true` and Hikari sweeps on a timer: it asks AniDB about everything it has no
+record for, links whatever is still unmatched, and scans the anime library if anything changed.
+Files newer than `AUTO_LINK_GRACE_HOURS` are left alone, because an AniDB match brings metadata a
+hand link does not and unregistered releases are often added within a day.
+
+A link only happens when the mapping is unambiguous: Sonarr's own record of that exact file path
+pins it to one air date, and exactly one AniDB episode without a file aired on that date. Anything
+else is reported and skipped. `GET /api/autolink` shows the last run, and `POST /api/autolink`
+without `{"confirm":true}` is a dry run listing exactly what it would link.
+
+To have it react to imports, add a Sonarr webhook (Settings, Connect, Webhook) pointing at
+`http://hikari:7997/api/hooks/sonarr` on Import and Upgrade. Sonarr fires that before Shoko has
+hashed the file, so it nudges Shoko to import and lets the next sweep do the linking.
+
+One case it will not do for you: if Shoko has no series for a show at all — because every file
+failed to match, so there is no local AniDB record to point at — add the series in Shoko once, and
+the linking works from then on.
+
 **Repairing watch state**
 Jellyfin keys played flags to item ids, so when Shokofin rebuilds its virtual file system it
 creates new items and the entire watch history is orphaned — a season you finished reads as 0.
@@ -214,6 +233,10 @@ Every variable goes in `.env`. Anything left blank disables its feature rather t
 | `ANIME_ROOT` | no | Library path used to recognise a torrent as anime. Default `/data/anime` |
 | `ANILIST_TOKEN` | no | AniList token. Discovery works without one; this adds your list status and progress |
 | `ANILIST_ALLOW_WRITES` | no | Default `false`. Set `true` to let Hikari change your AniList status and progress |
+| `AUTO_LINK` | no | Default `false`. Links files Shoko hashed but AniDB never matched, on a timer |
+| `AUTO_LINK_INTERVAL_MINUTES` | no | Default 60, minimum 5 |
+| `AUTO_LINK_GRACE_HOURS` | no | Default 6. How long a new file is left for AniDB first |
+| `AUTO_LINK_MAX_PER_RUN` | no | Default 20 |
 | `CACHE_FILE` | no | Path for the cache snapshot, so a restart does not re-fetch AniList |
 | `HIKARI_TOKEN` | no | Shared secret required on the routes that change things. See Security |
 | `HOST` | no | Bind address. Default `0.0.0.0`; use `127.0.0.1` for local-only |
@@ -364,6 +387,9 @@ Add to `services.yaml`:
 | `POST /api/shoko/action/:name` | `refresh-anidb`, `forget-deleted` or `import-new` |
 | `POST /api/jellyfin/played/:anilistId` | Marks episodes played up to `{ upTo }`. Only searches after `{"confirm":true}` |
 | `POST /api/jellyfin/refresh` | Scans the anime library so newly linked files appear |
+| `GET /api/autolink` | Automatic linking status and last run |
+| `POST /api/autolink` | Runs a sweep. Dry run unless `{"confirm":true}` |
+| `POST /api/hooks/sonarr` | Sonarr Connect webhook target |
 | `GET /api/activity` | Sonarr queue, torrents, recent requests, and per-section errors |
 | `GET /api/homepage` | Flat counters for a dashboard widget |
 
