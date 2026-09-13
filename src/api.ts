@@ -260,6 +260,49 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+export type SettingField = {
+  key: string;
+  env: string;
+  type: "url" | "secret" | "text" | "boolean" | "number";
+  group: string;
+  label: string;
+  hint: string | null;
+  placeholder: string | null;
+  min: number | null;
+  max: number | null;
+  /** Where the effective value came from: the settings file, the environment, or a built-in. */
+  source: "settings" | "env" | "default";
+  /** Always null for secrets — the server never sends one back. */
+  value: string | number | boolean | null;
+  /** Last four characters of a secret, so you can tell which key is stored. */
+  preview: string | null;
+  set: boolean;
+};
+
+export type Settings = {
+  path: string | null;
+  writable: boolean;
+  configured: boolean;
+  fields: SettingField[];
+  enabled: Record<string, boolean>;
+};
+
+export const getSettings = () => json<Settings>("/api/settings");
+
+export const saveSettings = (patch: Record<string, string | number | boolean>) =>
+  json<Settings & { changed: string[] }>("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch)
+  });
+
+export const testService = (service: string, url?: string, key?: string) =>
+  json<{ ok: boolean; detail?: string; error?: string }>("/api/settings/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ service, url, key })
+  });
+
 export const getHealth = () => json<Health>("/api/health");
 export const getDiscover = () => json<Discover>("/api/discover");
 export const getSchedule = (days = 7) => json<Schedule>(`/api/schedule?days=${days}`);

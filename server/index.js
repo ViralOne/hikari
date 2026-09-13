@@ -16,7 +16,9 @@ import * as radarr from "./radarr.js";
 import * as shoko from "./shoko.js";
 import * as anilistList from "./anilist-list.js";
 import * as autolink from "./autolink.js";
+import * as settings from "./settings.js";
 import { withinADay } from "./dates.js";
+import { request } from "./http.js";
 
 const app = new Hono();
 
@@ -41,6 +43,8 @@ app.use("/api/shoko/*", requireToken);
 app.use("/api/jellyfin/*", requireToken);
 app.use("/api/autolink", requireToken);
 app.use("/api/hooks/*", requireToken);
+app.use("/api/settings", requireToken);
+app.use("/api/settings/*", requireToken);
 
 async function requireToken(c, next) {
   if (c.req.method === "GET" || !config.token) return next();
@@ -556,6 +560,58 @@ async function repairTarget(anilistId, fileId) {
   return { row };
 }
 
+app.get("/api/settings", c => c.json({ ...settings.describe(), configured: settings.isConfigured() }));
+
+app.post("/api/settings", async c => {
+  const body = await c.req.json().catch(() => null);
+  const result = settings.update(body);
+
+  // A newly enabled sweep should start without a restart, and a disabled one should stop.
+  autolink.restart();
+
+  return c.json({ ok: true, ...result, ...settings.describe(), configured: settings.isConfigured() });
+});
+
+// Probes a service with values that have not been saved yet, so the setup screen can tell you a
+// key is wrong before you commit it. Nothing is stored and nothing is cached.
+app.post("/api/settings/test", async c => {
+  const body = await c.req.json().catch(() => ({}));
+  const service = String(body.service || "");
+
+  // Falls back to what is already stored, so Test works for a service you configured earlier
+  // without making you paste the key again just to check it.
+  const stored = config[service === "jellyseerr" ? "jellyseerr" : service] ?? {};
+  const url = String(body.url || stored.url || "").replace(/\/+$/, "");
+  const key = String(body.key || stored.key || "");
+
+  const probes = {
+    jellyseerr: { path: "/api/v1/status", headers: { "X-Api-Key": key }, version: b => `v${b.version}` },
+    sonarr: { path: "/api/v3/system/status", headers: { "X-Api-Key": key }, version: b => `v${b.version}` },
+    radarr: { path: "/api/v3/system/status", headers: { "X-Api-Key": key }, version: b => `v${b.version}` },
+    jellyfin: {
+      path: "/System/Info",
+      headers: { Authorization: `MediaBrowser Token="${key}"` },
+      version: b => `v${b.Version}`
+    },
+    shoko: { path: "/api/v3/Init/Status", headers: { apikey: key }, version: b => b.State || "reachable" }
+  };
+
+  const probe = probes[service];
+  if (!probe) return c.json({ error: `cannot test ${service || "an unnamed service"}` }, 400);
+  if (!url) return c.json({ ok: false, error: "a URL is required" }, 400);
+
+  try {
+    const body2 = await request(service, `${url}${probe.path}`, {
+      headers: { ...probe.headers, Accept: "application/json" },
+      timeout: 10000
+    });
+    return c.json({ ok: true, detail: probe.version(body2) });
+  } catch (err) {
+    // The upstream body is deliberately not returned, same as everywhere else.
+    return c.json({ ok: false, error: err.message });
+  }
+});
+
 app.get("/api/autolink", c => c.json(autolink.status()));
 
 // Manual run. Defaults to a dry run so you can see what it would link before it does.
@@ -869,6 +925,10 @@ async function describeRouting(request) {
   };
 }
 
+// Before the snapshot, because settings decide which services exist and a snapshot restored
+// under the wrong configuration would hand back answers from a service you just replaced.
+const settingsFile = settings.load();
+
 const restored = loadSnapshot();
 
 // Persist on the way out and periodically, so a restart or crash keeps the AniList data.
@@ -899,5 +959,10 @@ serve({ fetch: app.fetch, port: config.port, hostname: config.host }, info => {
   }
   const snapshot = cacheStats().snapshot;
   if (snapshot) console.log(`[hikari]   cache snapshot ${snapshot} (${restored} entries restored)`);
+  if (settingsFile.loaded) {
+    console.log(`[hikari]   settings ${settingsFile.path} (${settingsFile.fields} overrides)`);
+  } else if (!settings.isConfigured()) {
+    console.log("[hikari]   nothing configured yet — open the app and it will walk you through setup");
+  }
   autolink.start();
 });

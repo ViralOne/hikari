@@ -1,13 +1,16 @@
 import { createMemo, createSignal, Errored, For, Loading, Match, onSettled, Show, Switch } from "solid-js";
-import { getHealth } from "./api";
+import { getHealth, getSettings } from "./api";
 import { Detail } from "./components/Detail";
 import { Icon } from "./components/Icon";
 import { Activity } from "./pages/Activity";
 import { Discover } from "./pages/Discover";
 import { Schedule } from "./pages/Schedule";
 import { Search } from "./pages/Search";
+import { Settings } from "./pages/Settings";
 
-type View = "discover" | "schedule" | "search" | "activity";
+// "settings" is reachable from the gear rather than the tab bar: four tabs is the most a phone
+// can show without crowding, and settings is not somewhere you go every day.
+type View = "discover" | "schedule" | "search" | "activity" | "settings";
 
 const VIEWS: Array<{ id: View; label: string; icon: string }> = [
   { id: "discover", label: "Discover", icon: "compass" },
@@ -43,6 +46,8 @@ export function App() {
   const [token, setToken] = createSignal(0);
   const [statusOpen, setStatusOpen] = createSignal(false);
   const [health, setHealth] = createSignal<Awaited<ReturnType<typeof getHealth>> | null>(null);
+  // null until asked, so a fresh install is not shown Discover for a moment before setup.
+  const [configured, setConfigured] = createSignal<boolean | null>(null);
 
   const refresh = () => setToken(value => value + 1);
 
@@ -52,8 +57,17 @@ export function App() {
       .catch(() => setHealth(null));
   };
 
+  const loadConfigured = () => {
+    getSettings()
+      .then(result => setConfigured(result.configured))
+      // A failure here must not trap you on the setup screen, so assume configured and let the
+      // service dots report the real problem.
+      .catch(() => setConfigured(true));
+  };
+
   onSettled(() => {
     loadHealth();
+    loadConfigured();
     const timer = setInterval(loadHealth, 60000);
 
     const onKey = (event: KeyboardEvent) => {
@@ -119,6 +133,14 @@ export function App() {
         <button class="icon-btn" onClick={refresh} aria-label="Refresh data">
           <Icon name="refresh" size={18} />
         </button>
+
+        <button
+          class={["icon-btn", { active: view() === "settings" }]}
+          onClick={() => pick("settings")}
+          aria-label="Settings"
+        >
+          <Icon name="settings" size={18} />
+        </button>
       </header>
 
       <Show when={statusOpen()}>
@@ -149,9 +171,13 @@ export function App() {
           </div>
         </div>
 
-        <div class="nav">
-          <NavButtons view={view()} onSelect={pick} itemClass="nav-item" />
-        </div>
+        {/* Hidden until something is configured: every one of these views would only be able to
+            show an error, and offering them as the first thing you see is a bad welcome. */}
+        <Show when={configured() !== false}>
+          <div class="nav">
+            <NavButtons view={view()} onSelect={pick} itemClass="nav-item" />
+          </div>
+        </Show>
 
         <div class="sidebar-foot">
           <For each={services()}>
@@ -167,6 +193,14 @@ export function App() {
           </For>
           <button class="btn ghost tiny" style={{ "margin-top": "6px" }} onClick={refresh}>
             Refresh data
+          </button>
+          <button
+            class={["nav-item", "compact", { active: view() === "settings" }]}
+            onClick={() => pick("settings")}
+            aria-current={view() === "settings" ? "page" : undefined}
+          >
+            <Icon name="settings" />
+            Settings
           </button>
         </div>
       </nav>
@@ -184,6 +218,22 @@ export function App() {
           )}
         >
           <Switch>
+            {/* A fresh install lands here, and cannot leave until at least one service answers. */}
+            <Match when={configured() === false || view() === "settings"}>
+              <Settings
+                welcome={configured() === false}
+                token={token()}
+                // Saving the first service must not throw you straight into Discover: the point
+                // of the welcome screen is to fill in the optional ones too.
+                onSaved={() => {
+                  loadConfigured();
+                  loadHealth();
+                  refresh();
+                  setView("settings");
+                }}
+                onExit={() => setView("discover")}
+              />
+            </Match>
             <Match when={view() === "discover"}>
               <Discover token={token()} onOpen={setSelected} />
             </Match>
@@ -200,9 +250,11 @@ export function App() {
         </Errored>
       </main>
 
-      <nav class="tabbar" aria-label="Sections">
-        <NavButtons view={view()} onSelect={pick} itemClass="tab" />
-      </nav>
+      <Show when={configured() !== false}>
+        <nav class="tabbar" aria-label="Sections">
+          <NavButtons view={view()} onSelect={pick} itemClass="tab" />
+        </nav>
+      </Show>
 
       <Show when={selected()}>
         {id => (

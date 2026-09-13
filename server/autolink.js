@@ -281,3 +281,9 @@ export function stop() {
   timer = null;
   pending = null;
 }
+
+// Settings can turn the sweep on, off, or change its interval while the server is running.
+export function restart() {
+  stop();
+  start();
+}

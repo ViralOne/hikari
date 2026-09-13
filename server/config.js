@@ -8,8 +8,10 @@ export const config = {
     url: trim(process.env.JELLYSEERR_URL),
     key: (process.env.JELLYSEERR_API_KEY || "").trim(),
     // Where to send the browser. Set this when you reach Jellyseerr on a different
-    // hostname than the server does (reverse proxy, Tailscale, Cloudflare).
-    publicUrl: trim(process.env.JELLYSEERR_PUBLIC_URL) || trim(process.env.JELLYSEERR_URL)
+    // hostname than the server does (reverse proxy, Tailscale, Cloudflare). Kept separate
+    // from the resolved value so changing the server URL cannot leave a stale derived one.
+    publicUrl: trim(process.env.JELLYSEERR_PUBLIC_URL),
+    browserUrl: ""
   },
   sonarr: {
     url: trim(process.env.SONARR_URL),
@@ -54,13 +56,30 @@ export const config = {
   }
 };
 
+// Mutated in place rather than replaced, because every module holds a reference to this object
+// and reads it at call time. Settings saved from the UI land in `config` and then call this.
 export const enabled = {
-  jellyseerr: Boolean(config.jellyseerr.url && config.jellyseerr.key),
-  sonarr: Boolean(config.sonarr.url && config.sonarr.key),
-  radarr: Boolean(config.radarr.url && config.radarr.key),
-  qbit: Boolean(config.qbit.url),
-  jellyfin: Boolean(config.jellyfin.url && config.jellyfin.key),
-  shoko: Boolean(config.shoko.url && config.shoko.key),
-  anilistList: Boolean(config.anilist.token),
+  jellyseerr: false,
+  sonarr: false,
+  radarr: false,
+  qbit: false,
+  jellyfin: false,
+  shoko: false,
+  anilistList: false,
   anilist: true
 };
+
+export function recompute() {
+  enabled.jellyseerr = Boolean(config.jellyseerr.url && config.jellyseerr.key);
+  enabled.sonarr = Boolean(config.sonarr.url && config.sonarr.key);
+  enabled.radarr = Boolean(config.radarr.url && config.radarr.key);
+  enabled.qbit = Boolean(config.qbit.url);
+  enabled.jellyfin = Boolean(config.jellyfin.url && config.jellyfin.key);
+  enabled.shoko = Boolean(config.shoko.url && config.shoko.key);
+  enabled.anilistList = Boolean(config.anilist.token);
+
+  config.jellyseerr.browserUrl = config.jellyseerr.publicUrl || config.jellyseerr.url;
+  return enabled;
+}
+
+recompute();

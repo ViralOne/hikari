@@ -4,6 +4,12 @@ services:
     image: hikari:local
     container_name: hikari
     restart: unless-stopped
+    # Optional now: everything can be set in the app under Settings. Keep it if you would
+    # rather configure by file.
     env_file: .env
     ports:
       - "7997:7997"
+    volumes:
+      # Holds the settings you save in the app and the AniList cache. Without this a rebuild
+      # would throw both away.
+      - ./cache:/cache

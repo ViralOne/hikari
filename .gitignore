@@ -6,4 +6,7 @@ dist/
 .impeccable/
 .playwright-mcp/
 .cache/
+# The compose bind mount. Holds the settings file, which holds every API key you own.
+cache/
+*hikari-settings.json
 fixtures/

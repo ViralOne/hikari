@@ -29,7 +29,7 @@ export function status() {
 }
 
 export function links(anime, match) {
-  const base = config.jellyseerr.publicUrl;
+  const base = config.jellyseerr.browserUrl;
   if (!base) return { media: null, search: null };
 
   const query = searchTitle(anime.title.english || anime.title.romaji || anime.title.display);
