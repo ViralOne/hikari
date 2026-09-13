@@ -74,9 +74,12 @@ async function annotate(media, problems = {}) {
     list.map(async item => {
       if (!item) return item;
 
-      const [library, shokoInfo, movie] = await Promise.all([
-        sonarr.findMatch(item).catch(err => note("sonarr", err)),
-        shoko.infoFor(item).catch(err => note("shoko", err)),
+      // Shoko first: it supplies the TvDB id that makes the Sonarr match exact. Its index is
+      // one cached call for the whole library, so the extra await costs nothing per item.
+      const shokoInfo = await shoko.infoFor(item).catch(err => note("shoko", err));
+
+      const [library, movie] = await Promise.all([
+        sonarr.findMatch(item, shokoInfo).catch(err => note("sonarr", err)),
         radarr.findMatch(item).catch(err => note("radarr", err))
       ]);
 
@@ -210,12 +213,12 @@ app.get("/api/anime/:id", async c => {
   const anime = await anilist.byId(id);
   if (!anime) return c.json({ error: "not found" }, 404);
 
-  const [library, request] = await Promise.all([
-    sonarr.findMatch(anime),
+  const [shokoInfo, request] = await Promise.all([
+    shoko.infoFor(anime).catch(() => null),
     enabled.jellyseerr ? seerr.resolve(anime).catch(err => ({ matched: false, error: err.message })) : Promise.resolve(null)
   ]);
 
-  const shokoInfo = await shoko.infoFor(anime).catch(() => null);
+  const library = await sonarr.findMatch(anime, shokoInfo).catch(() => null);
   const [movie, listEntry, files] = await Promise.all([
     radarr.findMatch(anime, request?.tmdbId).catch(() => null),
     anilistList.entryFor(anime.id).catch(() => null),

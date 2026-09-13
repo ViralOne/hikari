@@ -514,6 +514,14 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                             {library().seriesType} · {library().monitored ? "yes" : "no"}
                           </dd>
                         </dl>
+                        <dl class="kv">
+                          <dt>Matched by</dt>
+                          <dd>
+                            {library().via === "shoko:tvdb"
+                              ? "TvDB id via Shoko (exact)"
+                              : `title, ${Math.round(library().confidence * 100)}% similar`}
+                          </dd>
+                        </dl>
 
                         <Show when={library().seriesType !== "anime" && anime().format !== "MOVIE"}>
                           <div class="notice bad">

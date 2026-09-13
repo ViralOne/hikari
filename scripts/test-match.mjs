@@ -97,6 +97,22 @@ const best = (titles, target, alternates) => {
   return top;
 };
 
+// --- the id bridge
+//
+// Sonarr positives were built from Shoko's TvDB id, so the bridge must resolve every one of
+// them without any title comparison. This fails if shoko.js stops carrying tvdbIds, which is
+// the one change that would silently push these back onto fuzzy matching.
+{
+  const cases = (fixtures.sonarr?.positives || []).filter(item => item.targetTvdbId);
+  const bridged = cases.filter(item => (item.shokoTvdbIds || []).includes(item.targetTvdbId));
+  console.log("\nshoko tvdb bridge");
+  check(
+    "every Sonarr positive resolves by id alone",
+    cases.length > 0 && bridged.length === cases.length,
+    `${bridged.length} of ${cases.length}`
+  );
+}
+
 for (const [name, cases] of Object.entries(fixtures)) {
   if (name === "builtAt") continue;
   const threshold = THRESHOLDS[name];

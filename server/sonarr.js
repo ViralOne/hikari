@@ -102,18 +102,30 @@ export function queue() {
 
 // Matching is O(series x keys x titles) per anime, and discover annotates 120 of them across
 // four rows. Cache per AniList id for the same window as the series list itself.
-export function findMatch(anime) {
+//
+// `shoko` is optional and only ever helps: when present it supplies TvDB ids, which match
+// Sonarr exactly. The cache key carries them because the same AniList id resolved with and
+// without the bridge can legitimately give different answers.
+export function findMatch(anime, shoko) {
   if (!enabled.sonarr) return Promise.resolve(null);
   if (anime.format === "MOVIE") return Promise.resolve(null);
-  return cached(`sonarr:match:${anime.id}`, 2 * 60 * 1000, () => computeMatch(anime));
+  const bridge = shoko?.tvdbIds?.length ? shoko.tvdbIds.join(",") : "0";
+  return cached(`sonarr:match:${anime.id}:${bridge}`, 2 * 60 * 1000, () => computeMatch(anime, shoko));
 }
 
-async function computeMatch(anime) {
+async function computeMatch(anime, shoko) {
   let list;
   try {
     list = await series();
   } catch {
     return null;
+  }
+
+  // AniList idMal -> Shoko -> AniDB -> TvDB -> Sonarr. Every hop is an id, so a hit here is
+  // correct by construction and no threshold can turn it into a false positive.
+  for (const tvdbId of shoko?.tvdbIds || []) {
+    const exact = list.find(item => item.tvdbId === tvdbId);
+    if (exact) return shape(exact, 1, "shoko:tvdb");
   }
 
   const titles = [anime.title.english, anime.title.romaji, anime.title.native].filter(Boolean);
@@ -129,17 +141,22 @@ async function computeMatch(anime) {
   }
 
   if (!best || best.score < SONARR_MATCH_THRESHOLD) return null;
+  return shape(best.item, best.score, "title");
+}
+
+function shape(item, confidence, via) {
   return {
-    id: best.item.id,
-    tvdbId: best.item.tvdbId,
-    title: best.item.title,
-    path: best.item.path,
-    seriesType: best.item.seriesType,
-    monitored: best.item.monitored,
-    episodeCount: best.item.episodeCount,
-    episodeFileCount: best.item.episodeFileCount,
-    sizeOnDisk: best.item.sizeOnDisk,
-    complete: best.item.episodeCount > 0 && best.item.episodeFileCount >= best.item.episodeCount,
-    confidence: Number(best.score.toFixed(3))
+    id: item.id,
+    tvdbId: item.tvdbId,
+    title: item.title,
+    path: item.path,
+    seriesType: item.seriesType,
+    monitored: item.monitored,
+    episodeCount: item.episodeCount,
+    episodeFileCount: item.episodeFileCount,
+    sizeOnDisk: item.sizeOnDisk,
+    complete: item.episodeCount > 0 && item.episodeFileCount >= item.episodeCount,
+    confidence: Number(confidence.toFixed(3)),
+    via
   };
 }

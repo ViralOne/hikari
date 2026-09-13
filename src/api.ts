@@ -9,6 +9,8 @@ export type LibraryMatch = {
   sizeOnDisk: number;
   complete: boolean;
   confidence: number;
+  /** "shoko:tvdb" and "tmdb" are exact id matches; "title" is fuzzy and can be wrong. */
+  via?: string | null;
 };
 
 export type SeasonInfo = {

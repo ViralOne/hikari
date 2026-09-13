@@ -51,6 +51,10 @@ export function seriesIndex() {
         name: item.Name,
         anidbId: ids.AniDB ?? null,
         malIds: ids.MAL || [],
+        // Shoko records the TvDB id AniDB maps to, and Sonarr keys every series by tvdbId.
+        // That pair is an exact bridge, which is what lets the Sonarr match skip title
+        // similarity entirely for anything Shoko knows about.
+        tvdbIds: (ids.TvDB || []).map(Number).filter(Number.isFinite),
         tmdbShowIds: ids.TMDB?.Show || [],
         onDisk: local.Episodes ?? 0,
         missing: missing.Episodes ?? 0,

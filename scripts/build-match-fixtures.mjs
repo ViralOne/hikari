@@ -111,6 +111,10 @@ for (const series of shokoSeries) {
       format: entry.format,
       target: sonarrSeries.title,
       targetAlternates: (sonarrSeries.alternateTitles || []).map(alt => alt.title).slice(0, 8),
+      // Recorded so the test can check the id bridge itself, not just title similarity:
+      // shokoTvdbIds are what Hikari reads from Shoko, targetTvdbId is what Sonarr holds.
+      shokoTvdbIds: (ids.TvDB || []).map(Number).filter(Number.isFinite),
+      targetTvdbId: Number(sonarrSeries.tvdbId),
       via: "shoko:tvdb"
     });
   }
