@@ -319,6 +319,16 @@ export function saveListEntry(
   });
 }
 
+export type ShokoAction = "refresh-anidb" | "forget-deleted" | "import-new";
+
+export function runShokoAction(action: ShokoAction) {
+  return json<{ ok: true; queued: boolean; action: string; label: string }>(`/api/shoko/action/${action}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}"
+  });
+}
+
 export function rescanShokoFile(anilistId: number, fileId: number) {
   return json<{ ok: true; episode: number | null; rescanned: boolean }>(
     `/api/shoko/rescan/${anilistId}/${fileId}`,

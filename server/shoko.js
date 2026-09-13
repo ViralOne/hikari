@@ -158,6 +158,34 @@ export async function rescanFile(fileId) {
   return { rescanned: true };
 }
 
+// Collection-wide maintenance. Allowlisted rather than proxied by name: Shoko's Action group
+// also holds SyncMyList and the Purge commands, which are genuinely destructive.
+//
+// All three are queued jobs, so they return immediately and the numbers move a while later.
+const ACTIONS = {
+  // Asks AniDB again for every file it has no record for. The first thing to try for a file
+  // that is on disk but unlinked.
+  "refresh-anidb": { path: "/Action/UpdateMissingAniDBFileInfo", label: "retry AniDB on files with missing info" },
+  // Drops database rows for files that no longer exist. removeFromMyList stays false so this
+  // cannot touch your AniDB list. Sonarr replacing a file with an upgrade leaves one of these
+  // behind, and it counts as unlinked until it is cleared.
+  "forget-deleted": { path: "/Action/RemoveMissingFiles/false", label: "forget files that are no longer on disk" },
+  // Hashes anything in the import folder Shoko has not seen yet.
+  "import-new": { path: "/Action/ImportNewFiles", label: "import new files" }
+};
+
+export function actionLabel(name) {
+  return ACTIONS[name]?.label ?? null;
+}
+
+export async function runAction(name) {
+  const action = ACTIONS[name];
+  if (!action) throw new Error(`unknown action ${name}`);
+  await api(action.path);
+  invalidate("shoko:");
+  return { queued: true, action: name, label: action.label };
+}
+
 // The fix when AniDB simply has no record of the release: point the file at the episode by
 // hand. Metadata only — nothing on disk is touched.
 export async function linkFile(fileId, episodeIds) {

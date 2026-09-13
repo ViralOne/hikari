@@ -7,12 +7,14 @@ import {
   markJellyfinPlayed,
   postRequest,
   rescanShokoFile,
+  runShokoAction,
   saveListEntry,
   searchMissingEpisodes,
   setSonarrSeriesType,
   type MissingSearchPlan,
   type PlayedPlan,
-  type SeasonInfo
+  type SeasonInfo,
+  type ShokoAction
 } from "../api";
 import { bytes, formatLabel, seasonLabel, statusLabel } from "../format";
 import { Icon } from "./Icon";
@@ -158,6 +160,28 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
         }
       }));
       props.onRequested();
+    } catch (err) {
+      setOutcomes(prev => ({
+        ...prev,
+        [props.id]: { ok: false, message: err instanceof Error ? err.message : String(err) }
+      }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const shokoAction = async (action: ShokoAction) => {
+    setBusy(true);
+    try {
+      const result = await runShokoAction(action);
+      setOutcomes(prev => ({
+        ...prev,
+        [props.id]: {
+          ok: true,
+          // Queued, not done: Shoko runs these on its own worker and the counts move later.
+          message: `Shoko queued a job to ${result.label}. Reopen this panel in a minute to see the result.`
+        }
+      }));
     } catch (err) {
       setOutcomes(prev => ({
         ...prev,
@@ -756,6 +780,34 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                                   changes. Across the whole collection Shoko has {report().collection.unlinked}{" "}
                                   unlinked file{report().collection.unlinked === 1 ? "" : "s"} of{" "}
                                   {report().collection.files}.
+                                </div>
+                                {/* The per-file buttons fix one episode. These fix the class, which
+                                    matters when the same gap covers dozens of files. */}
+                                <div class="chips">
+                                  <button
+                                    class="btn tiny ghost"
+                                    disabled={busy()}
+                                    title="Ask AniDB again for every file it has no record for"
+                                    onClick={() => shokoAction("refresh-anidb")}
+                                  >
+                                    Retry AniDB on all {report().collection.unlinked}
+                                  </button>
+                                  <button
+                                    class="btn tiny ghost"
+                                    disabled={busy()}
+                                    title="Drop database rows for files that are no longer on disk. Your AniDB list is not touched."
+                                    onClick={() => shokoAction("forget-deleted")}
+                                  >
+                                    Forget deleted files
+                                  </button>
+                                  <button
+                                    class="btn tiny ghost"
+                                    disabled={busy()}
+                                    title="Hash anything in the import folder Shoko has not seen yet"
+                                    onClick={() => shokoAction("import-new")}
+                                  >
+                                    Import new files
+                                  </button>
                                 </div>
                               </Show>
 

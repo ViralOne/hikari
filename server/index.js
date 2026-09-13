@@ -553,6 +553,18 @@ async function repairTarget(anilistId, fileId) {
   return { row };
 }
 
+// Collection-wide Shoko maintenance. The per-file buttons fix one episode; these fix the class.
+app.post("/api/shoko/action/:name", async c => {
+  if (!enabled.shoko) return c.json({ error: "Shoko is not configured" }, 503);
+
+  const name = c.req.param("name");
+  if (!shoko.actionLabel(name)) return c.json({ error: `unknown action ${name}` }, 400);
+
+  const result = await shoko.runAction(name);
+  console.log(`[hikari] queued shoko action ${name}`);
+  return c.json({ ok: true, ...result });
+});
+
 app.post("/api/shoko/rescan/:anilistId/:fileId", async c => {
   const target = await repairTarget(Number(c.req.param("anilistId")), Number(c.req.param("fileId")));
   if (target.error) return c.json({ error: target.error }, target.status);
