@@ -45,12 +45,12 @@ app.use("/api/hooks/*", requireToken);
 async function requireToken(c, next) {
   if (c.req.method === "GET" || !config.token) return next();
 
-  // A query token is accepted because Sonarr's webhook cannot send custom headers. It ends up
-  // in access logs, so it is only worth using on the hook route.
+  // A query token is accepted on the webhook only, because Sonarr's Connect cannot send custom
+  // headers. Everywhere else it would just be a token in your access logs and Referer headers
+  // for no benefit.
+  const fromQuery = c.req.path.startsWith("/api/hooks/") ? c.req.query("token") : undefined;
   const provided =
-    c.req.header("authorization")?.replace(/^Bearer\s+/i, "") ||
-    c.req.header("x-hikari-token") ||
-    c.req.query("token");
+    c.req.header("authorization")?.replace(/^Bearer\s+/i, "") || c.req.header("x-hikari-token") || fromQuery;
   if (provided !== config.token) return c.json({ error: "unauthorized" }, 401);
   return next();
 }

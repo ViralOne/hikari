@@ -23,7 +23,7 @@ import * as sonarr from "./sonarr.js";
 let last = { at: null, ran: 0, linked: [], skipped: [], errors: [], scanned: false };
 let running = false;
 let timer = null;
-let dueSoon = false;
+let pending = null;
 
 export function status() {
   return {
@@ -37,12 +37,55 @@ export function status() {
 }
 
 // Called by the Sonarr webhook. Shoko's own watcher usually notices a new file on its own, but
-// nudging it means the hash exists by the time the next sweep runs.
+// nudging it means the hash exists by the time the sweep runs.
+//
+// The sweep is then scheduled for when this import's grace period expires, rather than left to
+// the hourly tick. Without that the hook only affected a log line, and an import a minute after
+// a tick waited the best part of two hours.
 export async function onImport() {
-  dueSoon = true;
-  if (!enabled.shoko) return { queued: false };
+  if (!enabled.shoko) return { queued: false, sweepAt: null };
   await shoko.runAction("import-new").catch(() => null);
-  return { queued: true };
+  return { queued: true, sweepAt: scheduleAfterGrace() };
+}
+
+function scheduleAfterGrace() {
+  if (!config.autoLink.enabled) return null;
+
+  // A batch import fires one hook per episode, so the timer is replaced rather than stacked.
+  if (pending) clearTimeout(pending);
+  const delay = config.autoLink.graceHours * 60 * 60 * 1000 + 5 * 60 * 1000;
+  const at = new Date(Date.now() + delay).toISOString();
+
+  pending = setTimeout(() => {
+    pending = null;
+    console.log("[hikari] auto-link: running after a Sonarr import");
+    sweep().catch(err => console.error(`[hikari] auto-link failed: ${err.message}`));
+  }, delay);
+  pending.unref?.();
+
+  return at;
+}
+
+// The decision that matters, kept pure so it can be tested without a live stack: which AniDB
+// episode, if any, a Sonarr episode's file belongs to. Anything short of exactly one candidate
+// is a refusal, because the alternative is linking a file to the wrong episode permanently.
+export function resolveEpisode(sonarrEpisode, anidbEpisodes) {
+  if (!sonarrEpisode) return { reason: "Sonarr has no episode with that file path" };
+  if (!sonarrEpisode.airDate) {
+    return { reason: `Sonarr has no air date for S${sonarrEpisode.seasonNumber}E${sonarrEpisode.episodeNumber}` };
+  }
+
+  const targets = (anidbEpisodes || []).filter(
+    item => !item.hasFile && withinADay(item.airDate, sonarrEpisode.airDate)
+  );
+
+  if (targets.length === 0) return { reason: `no unfilled AniDB episode aired on ${sonarrEpisode.airDate}` };
+  if (targets.length > 1) {
+    return { reason: `${targets.length} unfilled AniDB episodes aired on ${sonarrEpisode.airDate}` };
+  }
+  if (!targets[0].shokoEpisodeId) return { reason: "Shoko reported no episode id" };
+
+  return { episode: targets[0] };
 }
 
 async function plan(maxPerRun) {
@@ -104,42 +147,25 @@ async function plan(maxPerRun) {
 
     for (const file of files) {
       const episode = byTail.get(shoko.pathTail(file.path));
-      if (!episode) {
-        skipped.push({ fileId: file.fileId, reason: "Sonarr has no episode with that file path" });
-        continue;
-      }
-      if (!episode.airDate) {
-        skipped.push({ fileId: file.fileId, reason: `Sonarr has no air date for S${episode.seasonNumber}E${episode.episodeNumber}` });
-        continue;
-      }
+      const resolved = resolveEpisode(episode, detail.episodes);
 
-      const targets = detail.episodes.filter(item => !item.hasFile && withinADay(item.airDate, episode.airDate));
-      if (targets.length !== 1) {
-        skipped.push({
-          fileId: file.fileId,
-          reason: targets.length === 0
-            ? `no unfilled AniDB episode aired on ${episode.airDate}`
-            : `${targets.length} unfilled AniDB episodes aired on ${episode.airDate}`
-        });
-        continue;
-      }
-      if (!targets[0].shokoEpisodeId) {
-        skipped.push({ fileId: file.fileId, reason: "Shoko reported no episode id" });
+      if (!resolved.episode) {
+        skipped.push({ fileId: file.fileId, reason: resolved.reason });
         continue;
       }
       // Two files claiming the same episode in one sweep means something is ambiguous, so
       // neither is linked.
-      if (actions.some(action => action.episodeId === targets[0].shokoEpisodeId)) {
+      if (actions.some(action => action.episodeId === resolved.episode.shokoEpisodeId)) {
         skipped.push({ fileId: file.fileId, reason: "another file already claims that episode this run" });
         continue;
       }
 
       actions.push({
         fileId: file.fileId,
-        episodeId: targets[0].shokoEpisodeId,
+        episodeId: resolved.episode.shokoEpisodeId,
         series: series.title,
         sonarr: `S${String(episode.seasonNumber).padStart(2, "0")}E${String(episode.episodeNumber).padStart(2, "0")}`,
-        anidbEpisode: targets[0].episode,
+        anidbEpisode: resolved.episode.episode,
         airDate: episode.airDate
       });
     }
@@ -162,10 +188,6 @@ export async function sweep({ apply = true, maxPerRun = config.autoLink.maxPerRu
 
   running = true;
   try {
-    // Ask AniDB about everything it has no record for first. A real AniDB match brings episode
-    // titles and the release group with it, which a hand link does not.
-    await shoko.runAction("refresh-anidb").catch(() => null);
-
     const result = await plan(maxPerRun);
     const linked = [];
     const errors = [];
@@ -179,6 +201,14 @@ export async function sweep({ apply = true, maxPerRun = config.autoLink.maxPerRu
           errors.push({ fileId: action.fileId, error: err.message });
         }
       }
+    }
+
+    // Give AniDB another go at whatever is left, so the next sweep can prefer a real match over
+    // a hand link. Gated twice over: a dry run must stay read-only, and this is AniDB's UDP API,
+    // which bans clients that talk to it for no reason — an idle collection would otherwise poke
+    // it every hour forever.
+    if (apply && result.unlinked > linked.length) {
+      await shoko.runAction("refresh-anidb").catch(() => null);
     }
 
     // Linking alone changes nothing a viewer can see: Shokofin only exposes the file after
@@ -237,22 +267,17 @@ export function start() {
       `leaving files younger than ${config.autoLink.graceHours}h to AniDB`
   );
 
-  const tick = () => {
-    dueSoon = false;
-    sweep().catch(err => console.error(`[hikari] auto-link failed: ${err.message}`));
-  };
+  const tick = () => sweep().catch(err => console.error(`[hikari] auto-link failed: ${err.message}`));
 
   // Not immediately on boot: a restart during an import would race Shoko's own hashing.
-  setTimeout(tick, 2 * 60 * 1000);
-  timer = setInterval(() => {
-    // dueSoon is set by the Sonarr webhook. It does not shorten the interval, it just means the
-    // next tick is worth running even if nothing else changed.
-    if (dueSoon) console.log("[hikari] auto-link: running after a Sonarr import");
-    tick();
-  }, every);
+  setTimeout(tick, 2 * 60 * 1000).unref?.();
+  timer = setInterval(tick, every);
+  timer.unref?.();
 }
 
 export function stop() {
   if (timer) clearInterval(timer);
+  if (pending) clearTimeout(pending);
   timer = null;
+  pending = null;
 }

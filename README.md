@@ -42,8 +42,8 @@ episode AniDB knows about but Shoko has no file for gets a row saying which it i
 | State | What it means | Offered fix |
 | --- | --- | --- |
 | not downloaded | Nothing on disk | Search Sonarr, after showing you the list |
-| on disk, not linked to AniDB | Shoko hashed the file, AniDB never matched it | Rescan, or link it by hand |
-| on disk, not scanned | The file exists, Shoko has not seen it | Points you at an import scan |
+| downloaded, not linked in Shoko | Shoko hashed the file, AniDB never matched it | Rescan, link it by hand, or let the sweep do it |
+| downloaded, Shoko has not scanned it | The file exists, Shoko has not seen it | Points you at an import scan |
 | not aired yet | Counted by AniDB, has not aired | Nothing to do |
 
 Episodes are matched to Sonarr by **air date**, because AniDB numbers a split cour from 1 while
@@ -103,7 +103,7 @@ Only Jellyseerr is required. Everything else is optional and simply disables the
 | Jellyseerr | Resolving titles and creating requests | Discovery still works, requesting does not |
 | Sonarr | "In library" badges, episode counts, queue | No library badges |
 | Jellyfin | Watch progress and next-up | No progress bars |
-| Shoko | True episode counts from AniDB, missing episodes, release groups | Counts fall back to what is on disk |
+| Shoko | True episode counts from AniDB, missing episodes, release groups, automatic episode linking | Counts fall back to what is on disk |
 | Radarr | Library badges for films | Films show no badge |
 | qBittorrent | Torrent activity view | That section is empty |
 
@@ -207,9 +207,9 @@ Checks:
 
 ```bash
 npm run check      # typecheck
-npm run test:unit  # title matcher unit cases, no services needed
+npm run test:unit  # matcher and auto-link unit cases, no services needed
 npm run fixtures   # builds a labelled dataset by reading your stack (read-only)
-npm test           # unit cases plus precision and recall floors, needs the fixtures
+npm test           # the above plus precision and recall floors, needs the fixtures
 ```
 
 ## Configuration
@@ -264,6 +264,9 @@ HOST=127.0.0.1
 
 `HOST=127.0.0.1` stops it listening on the network at all, which is the right setting if you reach it
 through a reverse proxy on the same machine.
+
+Sonarr's webhook cannot send custom headers, so `/api/hooks/sonarr` also accepts the token as
+`?token=...`. That is the only route that does, because a token in a URL ends up in access logs.
 
 `HIKARI_TOKEN` makes the state-changing endpoints require `Authorization: Bearer <token>`. Be aware
 of the trade-off: **the built-in web UI does not send this header**, so setting it turns the browser
