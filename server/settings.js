@@ -153,12 +153,17 @@ function coerce(field, raw) {
   return text;
 }
 
-// The override layer only holds what was actually set, so unsetting a field in the UI falls
-// back to the environment rather than pinning an empty string over it.
+// What the environment and the built-in defaults said, captured before anything is applied.
+// Without it, clearing a field left the last saved value in `config` until a restart while the
+// settings screen reported the source as the environment — wrong, and silently so.
+const baseline = new Map(FIELDS.map(field => [field.key, read(config, field.key)]));
+
+// Applied as a whole layer rather than field by field, so removing an override restores the
+// baseline in the same pass.
 export function apply() {
   for (const field of FIELDS) {
-    const value = read(overrides, field.key);
-    if (value === undefined || value === null) continue;
+    const override = read(overrides, field.key);
+    const value = override === undefined || override === null ? baseline.get(field.key) : override;
     write(config, field.key, value);
   }
   recompute();

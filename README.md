@@ -14,6 +14,10 @@ AniList  ->  Hikari  ->  Jellyseerr  ->  Sonarr  ->  your download client
 
 ## Features
 
+**Setup in the browser**
+A welcome screen on first run, and a Settings page afterwards, for every service address and key,
+each with a connection test. No file to edit and no restart to apply.
+
 **Discover**
 A spotlight banner plus four rows: airing this season, trending this week, next season, and the
 highest rated of all time. Every card is badged from your real library, so you can tell at a glance
@@ -107,41 +111,52 @@ Only Jellyseerr is required. Everything else is optional and simply disables the
 | Radarr | Library badges for films | Films show no badge |
 | qBittorrent | Torrent activity view | That section is empty |
 
-You also need Docker, or Node 22+ if you want to run it directly.
+You also need Docker, or Node 22+ if you want to run it directly. No configuration file is
+necessary — everything can be set in the app.
 
 ## Quick start
-
-**1. Get the config file**
-
-```bash
-cp .env.example .env
-```
-
-**2. Fill in your service URLs and API keys**
-
-Use whatever address the machine running Hikari uses to reach each service — a hostname, a LAN IP, or
-a Docker service name all work.
-
-```ini
-JELLYSEERR_URL=http://your-server:5055
-JELLYSEERR_API_KEY=paste-from-jellyseerr-settings
-```
-
-Where to find each key:
-
-- **Jellyseerr** — Settings, General, API Key
-- **Sonarr** — Settings, General, API Key
-- **Jellyfin** — Dashboard, API Keys, create a new key
-- **qBittorrent** — your normal Web UI username and password
-
-**3. Start it**
 
 ```bash
 docker compose up -d --build
 ```
 
-Open `http://localhost:7997`. The sidebar shows a status dot per service; hover one to see the
-detected version or the error.
+Open `http://localhost:7997`. There is nothing to edit first: the app opens a welcome screen, you
+paste in your service addresses and keys, and each one has a **Test connection** button so you find
+out a key is wrong before you save it. Only Jellyseerr is required; the rest can be filled in later
+from **Settings**.
+
+Where to find each key:
+
+- **Jellyseerr** — Settings, General, API Key
+- **Sonarr** and **Radarr** — Settings, General, API Key
+- **Jellyfin** — Dashboard, API Keys, create a new key
+- **Shoko** — Settings, API Keys
+- **qBittorrent** — your normal Web UI username and password
+
+Use whatever address the machine running Hikari uses to reach each service — a hostname, a LAN IP or
+a Docker service name all work. Inside Docker, `localhost` means the container, not your host.
+
+What you save is written to `/cache/hikari-settings.json` at mode 600, which is why the compose file
+mounts `./cache`. Keep that volume and your setup survives rebuilds.
+
+The sidebar shows a status dot per service; hover one to see the detected version or the error.
+
+### Configuring by file instead
+
+Every setting also has an environment variable, so `.env` still works and is the fallback for
+anything the UI has not overridden:
+
+```bash
+cp .env.example .env
+```
+
+Precedence is simple: a value saved in the app wins, otherwise the environment variable, otherwise
+the built-in default. Clearing a field in the UI hands it back to the environment. Nothing Hikari
+writes ever touches your `.env`.
+
+`PORT`, `HOST` and `HIKARI_TOKEN` are environment-only on purpose. The first two need a restart to
+mean anything, and letting the network set the secret that guards the network-facing routes would
+defeat the point of having one.
 
 ### Using the prebuilt image
 
@@ -237,6 +252,7 @@ Every variable goes in `.env`. Anything left blank disables its feature rather t
 | `AUTO_LINK_INTERVAL_MINUTES` | no | Default 60, minimum 5 |
 | `AUTO_LINK_GRACE_HOURS` | no | Default 6. How long a new file is left for AniDB first |
 | `AUTO_LINK_MAX_PER_RUN` | no | Default 20 |
+| `SETTINGS_FILE` | no | Where settings saved in the app are written. Default `/cache/hikari-settings.json` |
 | `CACHE_FILE` | no | Path for the cache snapshot, so a restart does not re-fetch AniList |
 | `HIKARI_TOKEN` | no | Shared secret required on the routes that change things. See Security |
 | `HOST` | no | Bind address. Default `0.0.0.0`; use `127.0.0.1` for local-only |
@@ -253,7 +269,10 @@ What is already in place:
   create requests on your behalf.
 - Error responses never include the body returned by an upstream service, which would otherwise
   expose internal paths and versions.
-- Your API keys stay on the server. The browser never receives them.
+- Your API keys stay on the server. A saved secret is never sent back to the browser — the settings
+  screen shows only its last four characters — and the settings file is written at mode 600.
+- Only the fields Hikari knows about can be set, and every value is validated before it can reach an
+  outbound request.
 
 If the port is reachable from anywhere untrusted, do both of these:
 
@@ -390,6 +409,9 @@ Add to `services.yaml`:
 | `POST /api/shoko/action/:name` | `refresh-anidb`, `forget-deleted` or `import-new` |
 | `POST /api/jellyfin/played/:anilistId` | Marks episodes played up to `{ upTo }`. Only searches after `{"confirm":true}` |
 | `POST /api/jellyfin/refresh` | Scans the anime library so newly linked files appear |
+| `GET /api/settings` | Every setting, its source, and whether a secret is set. Never returns a secret |
+| `POST /api/settings` | Saves settings. An empty value clears the override |
+| `POST /api/settings/test` | Probes one service, with unsaved values if you pass them |
 | `GET /api/autolink` | Automatic linking status and last run |
 | `POST /api/autolink` | Runs a sweep. Dry run unless `{"confirm":true}` |
 | `POST /api/hooks/sonarr` | Sonarr Connect webhook target |
