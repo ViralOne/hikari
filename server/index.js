@@ -18,6 +18,7 @@ import * as shoko from "./shoko.js";
 import * as anilistList from "./anilist-list.js";
 import * as autolink from "./autolink.js";
 import * as settings from "./settings.js";
+import * as auth from "./auth.js";
 import { withinADay } from "./dates.js";
 import { request } from "./http.js";
 
@@ -34,6 +35,26 @@ app.use("/api/*", async (c, next) => {
   await next();
   c.header("Cache-Control", "no-store");
 });
+
+// A Jellyfin-backed session, when it is switched on. Everything under /api is gated except the
+// auth routes themselves and the webhook, which carries a token instead of a cookie.
+app.use("/api/*", async (c, next) => {
+  if (!config.auth.enabled || !enabled.jellyfin) return next();
+
+  const path = c.req.path;
+  if (path === "/api/auth" || path.startsWith("/api/auth/") || path.startsWith("/api/hooks/")) return next();
+
+  if (auth.verify(auth.readCookie(c.req.header("cookie")))) return next();
+
+  // A script with the shared secret is still allowed through: automation cannot hold a cookie.
+  const bearer = c.req.header("authorization")?.replace(/^Bearer\s+/i, "") || c.req.header("x-hikari-token");
+  if (config.token && bearer && sameSecret(bearer, config.token)) return next();
+
+  return c.json({ error: "sign in required" }, 401);
+});
+
+const isHttps = c =>
+  c.req.header("x-forwarded-proto") === "https" || new URL(c.req.url).protocol === "https:";
 
 // Optional shared secret for the state-changing routes. Unset = LAN-trusted, which is the
 // same posture as the rest of the stack, but the port must then stay off the internet.
@@ -577,6 +598,42 @@ async function repairTarget(anilistId, fileId) {
   return { row };
 }
 
+// Everything the login screen needs, and nothing else: it has to be readable while signed out.
+app.get("/api/auth", c => {
+  const state = auth.status();
+  const session = state.enabled ? auth.verify(auth.readCookie(c.req.header("cookie"))) : null;
+  return c.json({
+    enabled: state.enabled,
+    configured: state.configured,
+    signedIn: Boolean(session) || !state.enabled,
+    user: session ? { name: session.name, admin: session.admin } : null
+  });
+});
+
+app.post("/api/auth/login", async c => {
+  const body = await c.req.json().catch(() => ({}));
+  const result = await auth.login({
+    username: body.username,
+    password: body.password,
+    // Behind a reverse proxy the socket address is the proxy, so prefer the forwarded one for
+    // the per-address throttle.
+    address: c.req.header("x-forwarded-for")?.split(",")[0].trim() || c.env?.incoming?.socket?.remoteAddress
+  });
+
+  c.header("Set-Cookie", auth.cookieHeader(result.token, { secure: isHttps(c) }));
+  console.log(`[hikari] ${result.user.name} signed in`);
+  return c.json({ ok: true, user: { name: result.user.name, admin: result.user.admin } });
+});
+
+app.post("/api/auth/logout", c => {
+  if (c.req.query("everywhere") === "1") {
+    const generation = auth.revokeAll();
+    console.log(`[hikari] all sessions revoked, generation ${generation}`);
+  }
+  c.header("Set-Cookie", auth.clearCookieHeader({ secure: isHttps(c) }));
+  return c.json({ ok: true });
+});
+
 app.get("/api/settings", c => c.json({ ...settings.describe(), configured: settings.isConfigured() }));
 
 app.post("/api/settings", async c => {
@@ -974,6 +1031,7 @@ async function describeRouting(request) {
 // Before the snapshot, because settings decide which services exist and a snapshot restored
 // under the wrong configuration would hand back answers from a service you just replaced.
 const settingsFile = settings.load();
+const authFile = auth.load();
 
 const restored = loadSnapshot();
 
@@ -1009,6 +1067,11 @@ serve({ fetch: app.fetch, port: config.port, hostname: config.host }, info => {
     console.log(`[hikari]   settings ${settingsFile.path} (${settingsFile.fields} overrides)`);
   } else if (!settings.isConfigured()) {
     console.log("[hikari]   nothing configured yet, open the app and it will walk you through setup");
+  }
+  if (config.auth.enabled && enabled.jellyfin) {
+    console.log(`[hikari]   Jellyfin login required (key ${authFile.path})`);
+  } else if (config.auth.enabled) {
+    console.log("[hikari]   login is on but Jellyfin is not configured, so it stays open");
   }
   autolink.start();
 });

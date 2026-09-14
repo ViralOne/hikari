@@ -25,6 +25,11 @@ Every variable goes in `.env`. Anything left blank disables its feature rather t
 | `AUTO_LINK_INTERVAL_MINUTES` | no | Default 60, minimum 5 |
 | `AUTO_LINK_GRACE_HOURS` | no | Default 6. How long a new file is left for AniDB first |
 | `AUTO_LINK_MAX_PER_RUN` | no | Default 20 |
+| `AUTH` | no | Default `false`. Require a Jellyfin login. See [Security](security.md) |
+| `AUTH_SESSION_DAYS` | no | Default 30 |
+| `AUTH_ADMINS_ONLY` | no | Default `false`. Only Jellyfin administrators may sign in |
+| `AUTH_USERS` | no | Comma-separated allowlist. Blank allows any Jellyfin account |
+| `AUTH_FILE` | no | Where the session signing key lives. Default `/cache/hikari-auth.json` |
 | `SETTINGS_FILE` | no | Where settings saved in the app are written. Default `/cache/hikari-settings.json` |
 | `CACHE_FILE` | no | Path for the cache snapshot, so a restart does not re-fetch AniList |
 | `HIKARI_TOKEN` | no | Shared secret required on the routes that change things. See Security |

@@ -267,7 +267,7 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
 export type SettingField = {
   key: string;
   env: string;
-  type: "url" | "secret" | "text" | "boolean" | "number";
+  type: "url" | "secret" | "text" | "boolean" | "number" | "list";
   group: string;
   label: string;
   hint: string | null;
@@ -290,6 +290,29 @@ export type Settings = {
   fields: SettingField[];
   enabled: Record<string, boolean>;
 };
+
+export type AuthState = {
+  enabled: boolean;
+  configured: boolean;
+  signedIn: boolean;
+  user: { name: string; admin: boolean } | null;
+};
+
+export const getAuth = () => json<AuthState>("/api/auth");
+
+export const login = (username: string, password: string) =>
+  json<{ ok: true; user: { name: string; admin: boolean } }>("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password })
+  });
+
+export const logout = (everywhere = false) =>
+  json<{ ok: true }>(`/api/auth/logout${everywhere ? "?everywhere=1" : ""}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}"
+  });
 
 export const getSettings = () => json<Settings>("/api/settings");
 

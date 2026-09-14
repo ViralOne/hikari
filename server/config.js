@@ -58,6 +58,18 @@ export const config = {
     allowWrites: /^(1|true|yes)$/i.test((process.env.ANILIST_ALLOW_WRITES || "").trim())
   },
   animeRoot: trim(process.env.ANIME_ROOT, "/data/anime"),
+  // Login is checked against Jellyfin, so Hikari keeps no accounts of its own. Off by default:
+  // turning it on without a reachable Jellyfin would lock the door on an empty room.
+  auth: {
+    enabled: /^(1|true|yes)$/i.test((process.env.AUTH || "").trim()),
+    sessionDays: num(process.env.AUTH_SESSION_DAYS, 30, 1, 365),
+    adminsOnly: /^(1|true|yes)$/i.test((process.env.AUTH_ADMINS_ONLY || "").trim()),
+    // Empty means any Jellyfin account.
+    users: (process.env.AUTH_USERS || "")
+      .split(",")
+      .map(name => name.trim())
+      .filter(Boolean)
+  },
   // Links files Shoko hashed but AniDB never matched, so Jellyfin can see them. Off by default
   // because it writes to Shoko on its own.
   autoLink: {

@@ -10,8 +10,8 @@
     "build": "vite build",
     "start": "NODE_ENV=production node server/index.js",
     "check": "tsc --noEmit",
-    "test": "node scripts/test-autolink.mjs && node scripts/test-match.mjs",
-    "test:unit": "node scripts/test-autolink.mjs && node scripts/test-match.mjs --unit-only",
+    "test": "node scripts/test-auth.mjs && node scripts/test-autolink.mjs && node scripts/test-match.mjs",
+    "test:unit": "node scripts/test-auth.mjs && node scripts/test-autolink.mjs && node scripts/test-match.mjs --unit-only",
     "fixtures": "node --env-file-if-exists=.env scripts/build-match-fixtures.mjs",
     "tune": "node scripts/tune-match.mjs"
   },

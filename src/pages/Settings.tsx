@@ -50,6 +50,11 @@ const GROUPS: Array<{
     blurb: "Optional. Adds your own list status and progress.",
     enabledKey: "anilistList"
   },
+  {
+    id: "auth",
+    title: "Login",
+    blurb: "Require a Jellyfin username and password before Hikari will show anything."
+  },
   { id: "autolink", title: "Automatic linking", blurb: "Keeps Shoko's episode links in step with Sonarr." },
   { id: "general", title: "General", blurb: "" }
 ];

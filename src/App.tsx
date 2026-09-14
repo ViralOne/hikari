@@ -1,11 +1,12 @@
 import { createMemo, createSignal, Errored, For, Loading, Match, onSettled, Show, Switch } from "solid-js";
-import { getHealth, getSettings } from "./api";
+import { getAuth, getHealth, getSettings, logout } from "./api";
 import { Detail } from "./components/Detail";
 import { Icon } from "./components/Icon";
 import { Activity } from "./pages/Activity";
 import { Discover } from "./pages/Discover";
 import { Schedule } from "./pages/Schedule";
 import { Search } from "./pages/Search";
+import { Login } from "./pages/Login";
 import { Settings } from "./pages/Settings";
 
 // "settings" is reachable from the gear rather than the tab bar: four tabs is the most a phone
@@ -48,6 +49,9 @@ export function App() {
   const [health, setHealth] = createSignal<Awaited<ReturnType<typeof getHealth>> | null>(null);
   // null until asked, so a fresh install is not shown Discover for a moment before setup.
   const [configured, setConfigured] = createSignal<boolean | null>(null);
+  // Same reasoning for the session: rendering the app before the answer arrives would fire a
+  // screenful of requests that all come back 401.
+  const [session, setSession] = createSignal<Awaited<ReturnType<typeof getAuth>> | null>(null);
 
   const refresh = () => setToken(value => value + 1);
 
@@ -55,6 +59,24 @@ export function App() {
     getHealth()
       .then(setHealth)
       .catch(() => setHealth(null));
+  };
+
+  // Health and settings are only fetched once the session is known, otherwise a signed-out
+  // load fires two requests that can only come back 401 and litter the console.
+  const loadSession = () => {
+    getAuth()
+      .then(state => {
+        setSession(state);
+        if (!state.signedIn) return;
+        loadHealth();
+        loadConfigured();
+      })
+      // Unreachable API must not strand you on a login form you cannot use.
+      .catch(() => {
+        setSession({ enabled: false, configured: false, signedIn: true, user: null });
+        loadHealth();
+        loadConfigured();
+      });
   };
 
   const loadConfigured = () => {
@@ -66,9 +88,10 @@ export function App() {
   };
 
   onSettled(() => {
-    loadHealth();
-    loadConfigured();
-    const timer = setInterval(loadHealth, 60000);
+    loadSession();
+    const timer = setInterval(() => {
+      if (session()?.signedIn !== false) loadHealth();
+    }, 60000);
 
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -102,7 +125,24 @@ export function App() {
     setStatusOpen(false);
   };
 
+  const signOut = async (everywhere: boolean) => {
+    await logout(everywhere).catch(() => null);
+    setSession(null);
+    loadSession();
+  };
+
   return (
+    <Show
+      when={!session() || session()!.signedIn}
+      fallback={
+        <Login
+          onSignedIn={() => {
+            loadSession();
+            refresh();
+          }}
+        />
+      }
+    >
     <div class="app">
       <a class="skip-link" href="#content">
         Skip to content
@@ -156,6 +196,16 @@ export function App() {
               </div>
             )}
           </For>
+          <Show when={session()?.enabled && session()?.user}>
+            {user => (
+              <div class="svc">
+                <span class="svc-name">Signed in as {user().name}</span>
+                <button class="btn ghost tiny" onClick={() => signOut(false)}>
+                  Sign out
+                </button>
+              </div>
+            )}
+          </Show>
           <button class="btn ghost tiny" onClick={() => setStatusOpen(false)}>
             Close
           </button>
@@ -194,6 +244,16 @@ export function App() {
           <button class="btn ghost tiny" style={{ "margin-top": "6px" }} onClick={refresh}>
             Refresh data
           </button>
+          <Show when={session()?.enabled && session()?.user}>
+            {user => (
+              <div class="signed-in">
+                <span class="svc-name">{user().name}</span>
+                <button class="btn ghost tiny" onClick={() => signOut(false)}>
+                  Sign out
+                </button>
+              </div>
+            )}
+          </Show>
           <button
             class={["nav-item", "compact", { active: view() === "settings" }]}
             onClick={() => pick("settings")}
@@ -295,5 +355,6 @@ export function App() {
         )}
       </Show>
     </div>
+    </Show>
   );
 }

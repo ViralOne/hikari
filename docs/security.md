@@ -2,7 +2,7 @@
 
 [Documentation index](README.md)
 
-Hikari has no user accounts. It is built to sit on a trusted network alongside the services it talks
+Hikari has no user accounts of its own. It is built to sit on a trusted network alongside the services it talks
 to, like the rest of a typical self-hosted stack.
 
 What is already in place:
@@ -45,6 +45,41 @@ of the trade-off: **the built-in web UI does not send this header**, so setting 
 into a read-only client and only scripted callers can request or update anything. If you need both a
 protected port and a working UI, put authentication in your reverse proxy instead and leave
 `HIKARI_TOKEN` unset.
+
+## Requiring a login
+
+Set `AUTH=true`, or tick **Require a Jellyfin login** under Settings, and Hikari asks for a
+username and password before it shows anything. Jellyfin checks the password over
+`/Users/AuthenticateByName`; Hikari only ever learns whether the answer was yes, and stores no
+password of its own.
+
+The session is a signed token in an `HttpOnly`, `SameSite=Lax` cookie, so page JavaScript cannot
+read it and a link from Homepage still works. The signing key is generated on first run and kept
+at `/cache/hikari-auth.json` with mode 600, which is why sessions survive a restart.
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `AUTH` | `false` | Require a login |
+| `AUTH_SESSION_DAYS` | 30 | How long a session lasts |
+| `AUTH_ADMINS_ONLY` | `false` | Refuse non-administrator Jellyfin accounts |
+| `AUTH_USERS` | empty | Comma-separated allowlist. Blank allows any Jellyfin account |
+
+Details worth knowing:
+
+- Failed logins are throttled: 10 attempts in 5 minutes per username and per address. A wrong
+  password and an unknown user give the same message, so the form cannot be used to discover who
+  has an account.
+- Sessions cannot be revoked individually, because there is nothing stored to revoke. **Sign out
+  everywhere** bumps a generation counter that invalidates every token issued before it.
+- `HIKARI_TOKEN` still works while login is on, so scripts and the Homepage widget keep running
+  without a cookie. The Sonarr webhook is exempt for the same reason.
+- Turning this on with no reachable Jellyfin leaves Hikari open rather than locking you out of an
+  empty room.
+- **Locked out?** Delete or edit `auth` in `/cache/hikari-settings.json` and restart. Environment
+  variables are the fallback, so `AUTH=false` in the file wins nothing: the override has to go.
+
+This is a lock on the front door, not a hardened perimeter. It stops the household and anything
+sweeping your LAN from browsing your library; it is not a reason to put the port on the internet.
 
 ## Where your AniList token comes from
 

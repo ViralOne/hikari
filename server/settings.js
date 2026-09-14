@@ -77,6 +77,30 @@ export const FIELDS = [
     label: "Anime library path",
     hint: "Used to recognise a torrent as anime"
   },
+  {
+    key: "auth.enabled",
+    env: "AUTH",
+    type: "boolean",
+    group: "auth",
+    label: "Require a Jellyfin login",
+    hint: "Checked against your Jellyfin server. Hikari keeps no accounts of its own"
+  },
+  {
+    key: "auth.adminsOnly",
+    env: "AUTH_ADMINS_ONLY",
+    type: "boolean",
+    group: "auth",
+    label: "Administrators only"
+  },
+  {
+    key: "auth.users",
+    env: "AUTH_USERS",
+    type: "list",
+    group: "auth",
+    label: "Allowed usernames",
+    hint: "Comma separated. Blank allows any Jellyfin account"
+  },
+  { key: "auth.sessionDays", env: "AUTH_SESSION_DAYS", type: "number", min: 1, max: 365, group: "auth", label: "Stay signed in for (days)" },
   { key: "autoLink.enabled", env: "AUTO_LINK", type: "boolean", group: "autolink", label: "Link unmatched files automatically" },
   { key: "autoLink.intervalMinutes", env: "AUTO_LINK_INTERVAL_MINUTES", type: "number", min: 5, max: 1440, group: "autolink", label: "Every (minutes)" },
   { key: "autoLink.graceHours", env: "AUTO_LINK_GRACE_HOURS", type: "number", min: 0, max: 168, group: "autolink", label: "Leave new files to AniDB for (hours)" },
@@ -130,6 +154,14 @@ export function coerce(field, raw) {
   if (field.type === "boolean") {
     if (typeof raw === "boolean") return raw;
     return /^(1|true|yes|on)$/i.test(String(raw).trim());
+  }
+
+  if (field.type === "list") {
+    const items = (Array.isArray(raw) ? raw : String(raw).split(","))
+      .map(item => String(item).trim())
+      .filter(Boolean);
+    if (items.some(item => /[\r\n\t,]/.test(item))) throw new SettingsError(`${field.key} has an invalid entry`);
+    return items.length === 0 ? null : items;
   }
 
   if (field.type === "number") {
@@ -302,7 +334,14 @@ export function describe() {
         max: field.max ?? null,
         source,
         // Secrets report whether they are set and their last four characters, never the value.
-        value: field.type === "secret" ? null : (effective ?? null),
+        // A list is sent as the comma-separated string the input shows, so the browser does not
+        // have to know the field is really an array.
+        value:
+          field.type === "secret"
+            ? null
+            : field.type === "list"
+              ? (effective ?? []).join(", ")
+              : (effective ?? null),
         preview: field.type === "secret" ? mask(effective) : null,
         set: field.type === "boolean" || field.type === "number" ? true : Boolean(effective)
       };

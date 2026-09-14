@@ -25,6 +25,7 @@
 - True episode counts from AniDB through Shoko, including which episodes are genuinely missing
 - Repairs the two things that habitually break: files AniDB never matched, and Jellyfin watch history orphaned by a Shokofin rebuild
 - AniList list status and episode progress, editable, off by default
+- Optional Jellyfin login, so the door is shut without Hikari keeping any accounts of its own
 - Setup entirely in the browser, with no configuration file needed and a connection test per service
 - Built for a phone as well as a desk: bottom tab bar, bottom sheets, no horizontal scrolling
 - A `customapi` endpoint for [Homepage](https://gethomepage.dev)
