@@ -29,6 +29,10 @@ export function hit(key, { max, windowMs }) {
 // Separate from hit() so a successful login can clear the penalty without clearing the window.
 export function penalise(key, { baseMs, maxMs }) {
   const record = strikes.get(key) ?? { count: 0, until: 0 };
+  // The escalation decays: a few bad guesses hours apart are somebody forgetting their password,
+  // not an attack, and without this the count only ever climbed, so a typo months later inherited
+  // the full hour.
+  if (record.until && now() - record.until > maxMs) record.count = 0;
   record.count += 1;
   record.until = now() + Math.min(baseMs * 2 ** (record.count - 1), maxMs);
   strikes.set(key, record);

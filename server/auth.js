@@ -81,13 +81,22 @@ function issue(user, days) {
 }
 
 export function verify(token) {
-  if (typeof token !== "string" || !token.includes(".")) return null;
-  const [payload, signature] = token.split(".", 2);
+  if (typeof token !== "string") return null;
+
+  // Exactly two parts. split(".", 2) accepted any trailing junk, so `payload.signature.anything`
+  // verified: not a forgery, since the claims still come from the signed payload, but it made the
+  // cookie value non-canonical and anything that later fingerprints a session wrong.
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  const [payload, signature] = parts;
   if (!payload || !signature) return null;
 
-  const expected = sign(payload);
-  if (signature.length !== expected.length) return null;
-  if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+  const expected = Buffer.from(sign(payload), "utf8");
+  const given = Buffer.from(signature, "utf8");
+  // Byte length, not string length: one multi-byte character in a signature of the right string
+  // length made timingSafeEqual throw, which surfaced as a 500 rather than a rejection.
+  if (given.length !== expected.length) return null;
+  if (!timingSafeEqual(given, expected)) return null;
 
   let claims;
   try {
@@ -97,7 +106,8 @@ export function verify(token) {
   }
 
   if (!claims || typeof claims !== "object") return null;
-  if (claims.exp <= Math.floor(Date.now() / 1000)) return null;
+  // A missing or non-numeric exp compares false against every number, so it would never expire.
+  if (!Number.isFinite(claims.exp) || claims.exp <= Math.floor(Date.now() / 1000)) return null;
   // Anything issued before the last "sign out everywhere" is dead, even if still in date.
   if (claims.g !== state.generation) return null;
 
@@ -105,9 +115,14 @@ export function verify(token) {
 }
 
 // Brute force is the only attack a login form invites, and this one may sit on a LAN where the
-// attacker already knows the usernames. Five a minute per username and per address, then an
-// escalating lockout, because a fixed window alone just means waiting for the next one.
+// attacker already knows the usernames. Five a minute per username and per address, and on the
+// address an escalating lockout on top, because a fixed window alone just means waiting for the
+// next one.
 const LOGIN = { max: 5, windowMs: 60 * 1000, baseMs: 60 * 1000, maxMs: 60 * 60 * 1000 };
+
+// The username becomes a rate-limiter key, so its length has to be bounded: without this, attempts
+// carrying a very long name are a cheap way to fill the counter map.
+const MAX_USERNAME = 64;
 
 export class AuthError extends Error {
   constructor(message, status = 401) {
@@ -122,21 +137,32 @@ export async function login({ username, password, address }) {
   if (typeof username !== "string" || typeof password !== "string" || !username.trim()) {
     throw new AuthError("a username and password are required", 400);
   }
+  // Indistinguishable from a wrong password on purpose: an over-long name is not worth telling
+  // anyone about, and no real Jellyfin account has one.
+  if (username.length > MAX_USERNAME) throw new AuthError("that username and password did not work");
 
-  const keys = [`login:u:${username.toLowerCase()}`, `login:a:${address || "unknown"}`];
+  const addressKey = `login:a:${address || "unknown"}`;
+  // Trimmed, or "alice " is a second bucket that gets its own five attempts a minute.
+  const userKey = `login:u:${username.trim().toLowerCase()}`;
 
-  for (const key of keys) {
-    const locked = lockedFor(key);
-    if (locked > 0) throw new AuthError(`too many attempts, try again in ${locked}s`, 429);
+  // The escalating lockout applies to the address only, never to the username. Escalating on the
+  // username meant six requests an hour from anywhere could keep a named person locked out of
+  // their own instance for good, since the check runs before the password is even looked at.
+  const locked = lockedFor(addressKey);
+  if (locked > 0) throw new AuthError(`too many attempts, try again in ${locked}s`, 429);
+
+  const addressWindow = hit(addressKey, LOGIN);
+  if (!addressWindow.allowed) {
+    // Each burst that exhausts the window doubles the penalty, so guessing gets slower the longer
+    // it goes on.
+    throw new AuthError(`too many attempts, try again in ${penalise(addressKey, LOGIN)}s`, 429);
   }
-  for (const key of keys) {
-    const check = hit(key, LOGIN);
-    if (!check.allowed) {
-      // Each burst that exhausts the window doubles the penalty, so guessing gets slower the
-      // longer it goes on.
-      const wait = Math.max(...keys.map(k => penalise(k, LOGIN)));
-      throw new AuthError(`too many attempts, try again in ${wait}s`, 429);
-    }
+
+  // A plain window for the username, so spraying one account from many addresses is still capped
+  // at five a minute, but nobody else's attempts can lock you out.
+  const userWindow = hit(userKey, LOGIN);
+  if (!userWindow.allowed) {
+    throw new AuthError(`too many attempts, try again in ${userWindow.retryIn}s`, 429);
   }
 
   let body;
@@ -177,7 +203,8 @@ export async function login({ username, password, address }) {
     throw new AuthError("only Jellyfin administrators may use Hikari", 403);
   }
 
-  for (const key of keys) forgive(key);
+  forgive(addressKey);
+  forgive(userKey);
   return { user, token: issue(user, config.auth.sessionDays) };
 }
 
@@ -213,8 +240,10 @@ export function readCookie(header) {
 
 export function status() {
   return {
-    // Enabled but unusable is worth surfacing rather than locking the door on an empty room.
-    enabled: config.auth.enabled && enabled.jellyfin,
+    // Reported as switched on even when Jellyfin is missing, because the gate now refuses requests
+    // in that state rather than standing aside. Saying "off" here told the app to render a UI whose
+    // every request would come back 503.
+    enabled: config.auth.enabled,
     configured: enabled.jellyfin,
     sessionDays: config.auth.sessionDays,
     adminsOnly: config.auth.adminsOnly,

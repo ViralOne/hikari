@@ -12,7 +12,9 @@ import { invalidate } from "./cache.js";
 //
 // PORT, HOST and HIKARI_TOKEN are deliberately not settable. The first two need a restart to
 // mean anything, and letting the network set the shared secret that protects the network-facing
-// routes would defeat the point of having one.
+// routes would defeat the point of having one. TRUST_PROXY, RATE_LIMIT_PER_MINUTE and AUTH_FILE are
+// left out for the same reason: they are the limits, so they do not belong to whoever is being
+// limited.
 
 const FILE = (process.env.SETTINGS_FILE || "/cache/hikari-settings.json").trim();
 
@@ -343,7 +345,14 @@ export function describe() {
               ? (effective ?? []).join(", ")
               : (effective ?? null),
         preview: field.type === "secret" ? mask(effective) : null,
-        set: field.type === "boolean" || field.type === "number" ? true : Boolean(effective)
+        // Boolean([]) is true, so an empty list has to be asked about its length or every unset
+        // list reports itself as set.
+        set:
+          field.type === "boolean" || field.type === "number"
+            ? true
+            : field.type === "list"
+              ? (effective ?? []).length > 0
+              : Boolean(effective)
       };
     }),
     enabled: { ...enabled }

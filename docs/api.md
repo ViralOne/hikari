@@ -19,12 +19,16 @@
 | `POST /api/shoko/action/:name` | `refresh-anidb`, `forget-deleted` or `import-new` |
 | `POST /api/jellyfin/played/:anilistId` | Marks episodes played up to `{ upTo }`. Only searches after `{"confirm":true}` |
 | `POST /api/jellyfin/refresh` | Scans the anime library so newly linked files appear |
-| `GET /api/auth` | Whether a login is required and who is signed in |
-| `POST /api/auth/login` | `{ username, password }`, checked against Jellyfin |
-| `POST /api/auth/logout` | Clears the cookie. `?everywhere=1` invalidates every session |
+| `GET /api/auth` | Whether a login is required and who is signed in. Readable while signed out |
+| `POST /api/auth/login` | `{ username, password }`, checked against Jellyfin. `401` wrong credentials, `403` account not allowed, `429` throttled, `503` no Jellyfin configured |
+| `POST /api/auth/logout` | Clears the cookie. `?everywhere=1` invalidates every session and needs a valid session or the token, else `401` |
 | `GET /api/settings` | Every setting, its source, and whether a secret is set. Never returns a secret |
 | `POST /api/settings` | Saves settings. An empty value clears the override |
 | `POST /api/settings/test` | Probes one service, with unsaved values if you pass them |
+
+The three settings routes need a Jellyfin administrator account when the login is on, or the shared
+token when one is set. Everything else needs any signed-in account. With the login off and no token,
+the whole API is open, which is why the port belongs on a trusted network.
 | `GET /api/autolink` | Automatic linking status and last run |
 | `POST /api/autolink` | Runs a sweep. Dry run unless `{"confirm":true}` |
 | `POST /api/hooks/sonarr` | Sonarr Connect webhook target |

@@ -126,7 +126,7 @@ Checks:
 
 ```bash
 npm run check      # typecheck
-npm run test:unit  # matcher and auto-link unit cases, no services needed
+npm run test:unit  # session, rate limit, matcher and auto-link cases, no services needed
 npm run fixtures   # builds a labelled dataset by reading your stack (read-only)
 npm test           # the above plus precision and recall floors, needs the fixtures
 ```

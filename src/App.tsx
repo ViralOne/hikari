@@ -1,5 +1,5 @@
 import { createMemo, createSignal, Errored, For, Loading, Match, onSettled, Show, Switch } from "solid-js";
-import { getAuth, getHealth, getSettings, logout } from "./api";
+import { getAuth, getHealth, getSettings, logout, onSessionLost } from "./api";
 import { Detail } from "./components/Detail";
 import { Icon } from "./components/Icon";
 import { Activity } from "./pages/Activity";
@@ -62,22 +62,26 @@ export function App() {
   };
 
   // Health and settings are only fetched once the session is known, otherwise a signed-out
-  // load fires two requests that can only come back 401 and litter the console.
-  const loadSession = () => {
+  // load fires two requests that can only come back 401 and litter the console. Returns the state
+  // so a caller can tell whether signing in actually took.
+  const loadSession = () =>
     getAuth()
       .then(state => {
         setSession(state);
-        if (!state.signedIn) return;
-        loadHealth();
-        loadConfigured();
+        if (state.signedIn) {
+          loadHealth();
+          loadConfigured();
+        }
+        return state;
       })
       // Unreachable API must not strand you on a login form you cannot use.
       .catch(() => {
-        setSession({ enabled: false, configured: false, signedIn: true, user: null });
+        const assumed = { enabled: false, configured: false, signedIn: true, user: null };
+        setSession(assumed);
         loadHealth();
         loadConfigured();
+        return assumed;
       });
-  };
 
   const loadConfigured = () => {
     getSettings()
@@ -89,6 +93,12 @@ export function App() {
 
   onSettled(() => {
     loadSession();
+    // Any 401 from anywhere means the session ended under us. Re-asking rather than trusting the
+    // 401 keeps one flaky request from throwing you out.
+    onSessionLost(() => {
+      if (session()?.signedIn !== false) loadSession();
+    });
+
     const timer = setInterval(() => {
       if (session()?.signedIn !== false) loadHealth();
     }, 60000);
@@ -133,14 +143,23 @@ export function App() {
 
   return (
     <Show
-      when={!session() || session()!.signedIn}
+      when={session()?.signedIn === true}
       fallback={
-        <Login
-          onSignedIn={() => {
-            loadSession();
-            refresh();
-          }}
-        />
+        // Three states, not two: while the answer is still in flight the shell used to render for
+        // a signed-out visitor, so the top bar and status pill flashed up before the login form.
+        <Show when={session()} fallback={<div class="login" aria-busy="true" />}>
+          <Login
+            // Defaults to true so that signing out, which clears the session for a moment, does not
+            // flash the "Jellyfin is not configured" warning on the way to the form.
+            configured={session()?.configured ?? true}
+            onSignedIn={async () => {
+              const state = await loadSession();
+              if (!state.signedIn) return false;
+              refresh();
+              return true;
+            }}
+          />
+        </Show>
       }
     >
     <div class="app">
@@ -202,6 +221,11 @@ export function App() {
                 <span class="svc-name">Signed in as {user().name}</span>
                 <button class="btn ghost tiny" onClick={() => signOut(false)}>
                   Sign out
+                </button>
+                {/* The only place this is offered. A session cannot be revoked one at a time, so
+                    this is what you reach for when a device is lost. */}
+                <button class="btn ghost tiny" onClick={() => signOut(true)} title="Ends every session on every device">
+                  Everywhere
                 </button>
               </div>
             )}
@@ -293,6 +317,10 @@ export function App() {
                 // Saving the first service must not throw you straight into Discover: the point
                 // of the welcome screen is to fill in the optional ones too.
                 onSaved={() => {
+                  // Saving can switch the login on, which invalidates this very page: without
+                  // re-reading the session the app kept rendering while every request 401'd and the
+                  // login form was only reachable by reloading by hand.
+                  loadSession();
                   loadConfigured();
                   loadHealth();
                   refresh();

@@ -62,8 +62,9 @@ export const config = {
   trustProxy: /^(1|true|yes)$/i.test((process.env.TRUST_PROXY || "").trim()),
   rateLimit: num(process.env.RATE_LIMIT_PER_MINUTE, 600, 30, 100000),
   animeRoot: trim(process.env.ANIME_ROOT, "/data/anime"),
-  // Login is checked against Jellyfin, so Hikari keeps no accounts of its own. Off by default:
-  // turning it on without a reachable Jellyfin would lock the door on an empty room.
+  // Login is checked against Jellyfin, so Hikari keeps no accounts of its own. Off by default,
+  // because on with no Jellyfin configured the gate refuses every request: a security control that
+  // stood aside instead would quietly leave a private instance public.
   auth: {
     enabled: /^(1|true|yes)$/i.test((process.env.AUTH || "").trim()),
     sessionDays: num(process.env.AUTH_SESSION_DAYS, 30, 1, 365),

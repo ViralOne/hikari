@@ -250,11 +250,22 @@ export type Health = {
   checks: Record<string, { configured: boolean; ok: boolean; detail: string }>;
 };
 
+// A session can end while the app is open: it expires, someone signs out everywhere, or the login
+// gets switched on from the Settings screen. Without this the app kept rendering over an API that
+// answered 401 to everything, so every request reports the loss once and the shell can show the
+// login form instead.
+let onLost: (() => void) | null = null;
+export const onSessionLost = (handler: () => void) => {
+  onLost = handler;
+};
+
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init);
   const body = await res.json().catch(() => null);
   if (!res.ok) {
     const message = (body && (body as { error?: string }).error) || `${res.status} ${res.statusText}`;
+    // 403 is a real account that is not allowed to do this, which is not a lost session.
+    if (res.status === 401 && !path.startsWith("/api/auth")) onLost?.();
     throw new Error(message);
   }
   // A 200 whose body is not JSON used to be cast to T and returned as null, which then blew up

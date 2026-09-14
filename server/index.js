@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { csrf } from "hono/csrf";
 
 import { config, enabled } from "./config.js";
@@ -30,7 +31,10 @@ const app = new Hono();
 // the per-address limits.
 const clientAddress = c => {
   if (config.trustProxy) {
-    const forwarded = c.req.header("x-forwarded-for")?.split(",")[0].trim();
+    // The RIGHTMOST entry, not the leftmost. A proxy appends the peer it actually spoke to, so the
+    // left of the list is whatever the client sent: reading it let anyone mint a fresh rate-limit
+    // bucket per request, and pin a lockout on someone else's address.
+    const forwarded = c.req.header("x-forwarded-for")?.split(",").at(-1)?.trim();
     if (forwarded) return forwarded;
   }
   return c.env?.incoming?.socket?.remoteAddress || "unknown";
@@ -77,17 +81,21 @@ app.use("/api/*", async (c, next) => {
 });
 
 // Nothing this API accepts is large, and an unbounded body is free memory for anyone who asks.
-app.use("/api/*", async (c, next) => {
-  const length = Number(c.req.header("content-length") || 0);
-  if (Number.isFinite(length) && length > 64 * 1024) {
-    return c.json({ error: "request body too large" }, 413);
-  }
-  return next();
-});
+// Hono's own middleware measures the stream rather than trusting Content-Length, which a chunked
+// request simply omits.
+app.use(
+  "/api/*",
+  bodyLimit({
+    maxSize: 64 * 1024,
+    onError: c => c.json({ error: "request body too large" }, 413)
+  })
+);
 
 // Hono's c.req.json() parses the body regardless of Content-Type, so a cross-origin
 // <form enctype="text/plain"> is a simple request that would reach the mutating routes.
-// The origin check blocks that; requests without an Origin header (curl) still pass.
+// The origin check blocks that. A caller that sends application/json is let through whatever its
+// origin, because a browser cannot send that cross-origin without a preflight nobody answers, so
+// this is not a substitute for authenticating a route.
 app.use("/api/*", csrf());
 
 // Without an explicit directive browsers may heuristically cache these GETs, which showed a
@@ -97,25 +105,46 @@ app.use("/api/*", async (c, next) => {
   c.header("Cache-Control", "no-store");
 });
 
+// The shared secret, wherever a request may carry one instead of a cookie.
+const bearerToken = c => c.req.header("authorization")?.replace(/^Bearer\s+/i, "") || c.req.header("x-hikari-token");
+const hasToken = c => {
+  const provided = bearerToken(c);
+  return Boolean(config.token && provided && sameSecret(provided, config.token));
+};
+
+const sessionFor = c => auth.verify(auth.readCookie(c.req.header("cookie")));
+
 // A Jellyfin-backed session, when it is switched on. Everything under /api is gated except the
-// auth routes themselves and the webhook, which carries a token instead of a cookie.
+// auth routes, which have to be reachable to sign in, and the webhook when a token protects it.
 app.use("/api/*", async (c, next) => {
-  if (!config.auth.enabled || !enabled.jellyfin) return next();
+  if (!config.auth.enabled) return next();
 
   const path = c.req.path;
-  if (path === "/api/auth" || path.startsWith("/api/auth/") || path.startsWith("/api/hooks/")) return next();
+  if (path === "/api/auth" || path.startsWith("/api/auth/")) return next();
+  // Sonarr's Connect cannot hold a cookie, so the webhook is exempt, but only when the shared
+  // secret is actually set. Exempting it unconditionally left it open on a login-only install.
+  if (path.startsWith("/api/hooks/") && config.token) return next();
 
-  if (auth.verify(auth.readCookie(c.req.header("cookie")))) return next();
+  // Deliberately not gated on enabled.jellyfin. Clearing or rotating the Jellyfin key used to turn
+  // the whole gate off and silently make a private instance public; a security control should fail
+  // closed. The recovery is documented: remove the auth block from the settings file and restart.
+  if (!enabled.jellyfin) {
+    if (hasToken(c)) return next();
+    return c.json({ error: "login is switched on but Jellyfin is not configured, so nobody can sign in" }, 503);
+  }
+
+  if (sessionFor(c)) return next();
 
   // A script with the shared secret is still allowed through: automation cannot hold a cookie.
-  const bearer = c.req.header("authorization")?.replace(/^Bearer\s+/i, "") || c.req.header("x-hikari-token");
-  if (config.token && bearer && sameSecret(bearer, config.token)) return next();
+  if (hasToken(c)) return next();
 
   return c.json({ error: "sign in required" }, 401);
 });
 
+// Only trust the forwarded protocol when a proxy is declared, for the same reason as the address.
 const isHttps = c =>
-  c.req.header("x-forwarded-proto") === "https" || new URL(c.req.url).protocol === "https:";
+  (config.trustProxy && c.req.header("x-forwarded-proto") === "https") ||
+  new URL(c.req.url).protocol === "https:";
 
 // Optional shared secret for the state-changing routes. Unset = LAN-trusted, which is the
 // same posture as the rest of the stack, but the port must then stay off the internet.
@@ -128,6 +157,23 @@ app.use("/api/autolink", requireToken);
 app.use("/api/hooks/*", requireToken);
 app.use("/api/settings", requireToken);
 app.use("/api/settings/*", requireToken);
+
+// The settings hold every service address and can point Jellyfin itself somewhere else, which would
+// send the next person's password to a host of the attacker's choosing. So when login is on, they
+// belong to Jellyfin administrators, not to everyone in the household with an account.
+app.use("/api/settings", requireAdmin);
+app.use("/api/settings/*", requireAdmin);
+
+async function requireAdmin(c, next) {
+  if (!config.auth.enabled || !enabled.jellyfin) return next();
+  // A caller holding the shared secret is automation the owner set up, not a household account.
+  if (hasToken(c)) return next();
+
+  const session = sessionFor(c);
+  if (!session) return c.json({ error: "sign in required" }, 401);
+  if (!session.admin) return c.json({ error: "only Jellyfin administrators can change the settings" }, 403);
+  return next();
+}
 
 async function requireToken(c, next) {
   if (!config.token) return next();
@@ -147,10 +193,14 @@ async function requireToken(c, next) {
 }
 
 // Length is compared first because timingSafeEqual throws on a mismatch, and the length of a
-// shared secret is not what anyone is trying to keep quiet.
+// shared secret is not what anyone is trying to keep quiet. Byte length, not string length: one
+// multi-byte character otherwise reached timingSafeEqual and threw, giving a 500 instead of a 401.
 function sameSecret(provided, expected) {
-  if (typeof provided !== "string" || provided.length !== expected.length) return false;
-  return timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
+  if (typeof provided !== "string") return false;
+  const given = Buffer.from(provided, "utf8");
+  const want = Buffer.from(expected, "utf8");
+  if (given.length !== want.length) return false;
+  return timingSafeEqual(given, want);
 }
 
 app.onError((err, c) => {
@@ -666,6 +716,8 @@ app.get("/api/auth", c => {
   return c.json({
     enabled: state.enabled,
     configured: state.configured,
+    // Switched on but with no Jellyfin to ask is not signed in: nobody can be, and the login screen
+    // says so rather than the app rendering over an API that refuses everything.
     signedIn: Boolean(session) || !state.enabled,
     user: session ? { name: session.name, admin: session.admin } : null
   });
@@ -673,23 +725,34 @@ app.get("/api/auth", c => {
 
 app.post("/api/auth/login", async c => {
   const body = await c.req.json().catch(() => ({}));
-  const result = await auth.login({
-    username: body.username,
-    password: body.password,
-    // Behind a reverse proxy the socket address is the proxy, so prefer the forwarded one for
-    // the per-address throttle.
-    address: clientAddress(c)
-  });
+  // Behind a reverse proxy the socket address is the proxy, so prefer the forwarded one for the
+  // per-address throttle.
+  const address = clientAddress(c);
+
+  let result;
+  try {
+    result = await auth.login({ username: body.username, password: body.password, address });
+  } catch (err) {
+    // A brute force attempt has to be visible in the log, or the throttle is the only thing that
+    // ever knows it happened. onError logs the message but neither the name tried nor the caller.
+    const tried = typeof body.username === "string" ? body.username.slice(0, 64) : "";
+    console.warn(`[hikari] failed login for "${tried}" from ${address}: ${err.message}`);
+    throw err;
+  }
 
   c.header("Set-Cookie", auth.cookieHeader(result.token, { secure: isHttps(c) }));
-  console.log(`[hikari] ${result.user.name} signed in`);
+  console.log(`[hikari] ${result.user.name} signed in from ${address}`);
   return c.json({ ok: true, user: { name: result.user.name, admin: result.user.admin } });
 });
 
 app.post("/api/auth/logout", c => {
+  // Clearing your own cookie needs no proof of anything. Revoking everyone's does: this route is
+  // exempt from the session gate so the login screen can reach it, and unauthenticated it was a
+  // one-line denial of service, since every call invalidates every session ever issued.
   if (c.req.query("everywhere") === "1") {
+    if (!sessionFor(c) && !hasToken(c)) return c.json({ error: "sign in required" }, 401);
     const generation = auth.revokeAll();
-    console.log(`[hikari] all sessions revoked, generation ${generation}`);
+    console.log(`[hikari] all sessions revoked from ${clientAddress(c)}, generation ${generation}`);
   }
   c.header("Set-Cookie", auth.clearCookieHeader({ secure: isHttps(c) }));
   return c.json({ ok: true });
@@ -1132,7 +1195,9 @@ serve({ fetch: app.fetch, port: config.port, hostname: config.host }, info => {
   if (config.auth.enabled && enabled.jellyfin) {
     console.log(`[hikari]   Jellyfin login required (key ${authFile.path})`);
   } else if (config.auth.enabled) {
-    console.log("[hikari]   login is on but Jellyfin is not configured, so it stays open");
+    console.warn(
+      "[hikari]   login is on but Jellyfin is not configured, so nobody can sign in. Remove the auth block from the settings file to open it again."
+    );
   }
   autolink.start();
 });

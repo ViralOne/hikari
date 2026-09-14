@@ -40,9 +40,32 @@ check("a correctly signed token verifies", session?.name === "milu" && session?.
 
 check("a token signed with another key is rejected", auth.verify(`${valid.split(".")[0]}.${"x".repeat(43)}`) === null);
 
-// Swapping the claims without re-signing is the obvious attack: promote yourself to admin.
+// Swapping the claims without re-signing is the obvious attack. Extending the expiry and promoting
+// to admin are both tried, since one is theft of time and the other of privilege.
 const tampered = `${b64(JSON.stringify({ u: "milu", id: "abc", admin: true, g: 1, exp: future + 99999 }))}.${valid.split(".")[1]}`;
 check("editing the claims invalidates the signature", auth.verify(tampered) === null);
+
+const guest = mint({ u: "guest", id: "def", admin: false, g: 1, exp: future });
+check("a non-admin token reports admin false", auth.verify(guest)?.admin === false);
+const promoted = `${b64(JSON.stringify({ u: "guest", id: "def", admin: true, g: 1, exp: future }))}.${guest.split(".")[1]}`;
+check("promoting yourself to admin invalidates the signature", auth.verify(promoted) === null);
+
+// A signature of the right character count but the wrong byte count reached timingSafeEqual, which
+// throws on a byte-length mismatch, so a junk cookie became a 500 on every route instead of a 401.
+const sameLengthDifferentBytes = `${valid.split(".")[0]}.é${"x".repeat(42)}`;
+let threw = null;
+try {
+  threw = auth.verify(sameLengthDifferentBytes);
+} catch (err) {
+  threw = err;
+}
+check("a multi-byte signature is rejected, not thrown on", threw === null, threw instanceof Error ? threw.message : "");
+
+// split(".", 2) accepted anything after the second dot, leaving the cookie value non-canonical.
+check("a token with trailing junk is rejected", auth.verify(`${valid}.extra`) === null);
+// A missing exp compares false against every number, so it would otherwise never expire.
+check("a token with no expiry is rejected", auth.verify(mint({ u: "milu", id: "abc", g: 1 })) === null);
+check("a non-numeric expiry is rejected", auth.verify(mint({ u: "milu", id: "abc", g: 1, exp: "never" })) === null);
 
 check("an expired token is rejected", auth.verify(mint({ u: "milu", id: "abc", g: 1, exp: Math.floor(Date.now() / 1000) - 1 })) === null);
 check("a token with no signature is rejected", auth.verify("just-a-payload") === null);
