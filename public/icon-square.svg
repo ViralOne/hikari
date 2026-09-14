@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>Hikari</title>
+  <!-- The square, full-bleed cut. Android's maskable icons and iOS both apply their own shape, so
+       this one must not carry its own corners, and the art is inset to 80% to survive a circular
+       mask. This is the file the PNGs are rendered from. -->
+  <defs>
+    <linearGradient id="tile" x1="0.16" y1="0" x2="0.84" y2="1">
+      <stop offset="0" stop-color="#131c46" />
+      <stop offset="0.6" stop-color="#1b4f80" />
+      <stop offset="1" stop-color="#3fe0ff" />
+    </linearGradient>
+    <linearGradient id="trail" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="1" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.22" />
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#tile)" />
+
+  <g transform="translate(51.2 51.2) scale(0.8)">
+    <path d="M318 166 A26 26 0 0 1 354 202 Q214 296 96 424 Q188 258 318 166 Z" fill="url(#trail)" />
+    <path d="M336 100 Q352 178 434 194 Q352 210 336 288 Q320 210 238 194 Q320 178 336 100 Z" fill="#ffffff" />
+    <circle cx="140" cy="168" r="14" fill="#ffffff" opacity="0.85" />
+    <path d="M196 372 Q201 402 224 410 Q201 418 196 448 Q191 418 168 410 Q191 402 196 372 Z" fill="#ffffff" opacity="0.75" />
+  </g>
+</svg>

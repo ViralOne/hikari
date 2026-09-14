@@ -116,12 +116,14 @@ select {
   padding: 0 8px;
 }
 
+/* The icon file itself rather than a CSS gradient, so the mark in the app, the browser tab and the
+   home screen are one artwork and cannot drift apart. The rounding lives in the SVG. */
 .brand-mark {
   width: 26px;
   height: 26px;
+  background: url("/icon.svg") center / contain no-repeat;
+  box-shadow: 0 0 22px rgba(63, 224, 255, 0.32);
   border-radius: 8px;
-  background: linear-gradient(140deg, var(--accent), #ff6bcb);
-  box-shadow: 0 0 22px rgba(124, 92, 255, 0.5);
 }
 
 .brand-name {

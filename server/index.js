@@ -1102,6 +1102,21 @@ if (hasBuild) {
     })
   );
 
+  // Vite copies public/ to the root of dist, so the icons and the web manifest sit beside
+  // index.html rather than under /assets. Without this they fell through to the SPA fallback and
+  // came back as HTML, which a favicon request cannot do anything with.
+  const rootFiles = serveStatic({
+    root: "./dist",
+    // A week: these change names only when the artwork does, but they are not content-hashed the
+    // way the bundle is, so they cannot be immutable.
+    onFound: (_path, c) => c.header("Cache-Control", "public, max-age=604800")
+  });
+  app.use("/*", (c, next) => {
+    // index.html is handled below so it keeps its no-cache, and /api is never a file.
+    if (c.req.path === "/" || c.req.path.startsWith("/api/")) return next();
+    return rootFiles(c, next);
+  });
+
   app.get("*", async c => {
     if (c.req.path.startsWith("/api/")) return c.json({ error: "not found" }, 404);
     const html = await readFile(new URL("index.html", distDir), "utf8");
