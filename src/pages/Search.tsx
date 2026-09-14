@@ -120,7 +120,7 @@ export function Search(props: { token: number; onOpen: (id: number) => void }) {
           fallback={
             <div class="empty">
               <strong>Find anime</strong>
-              Type a title, or pick a season and year to browse — for example Winter 2026.
+              Type a title, or pick a season and year to browse, for example Winter 2026.
             </div>
           }
         >

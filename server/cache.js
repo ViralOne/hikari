@@ -67,7 +67,7 @@ export function cached(key, ttlMs, producer) {
       // Keep the last good value available instead of deleting the entry that holds it,
       // which would make every following request re-hit the failing upstream.
       if (previous !== undefined) {
-        console.warn(`[hikari] ${key}: ${err.message} — serving stale value`);
+        console.warn(`[hikari] ${key}: ${err.message}, serving stale value`);
         store.set(key, {
           value: Promise.resolve(previous),
           expires: Date.now() + STALE_RETRY_MS,

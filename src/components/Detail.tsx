@@ -594,7 +594,7 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                                     Up next: <strong>
                                       S{next().season ?? "?"}E{next().episode ?? "?"}
                                     </strong>{" "}
-                                    — {next().name}
+                                    · {next().name}
                                   </div>
                                 )}
                               </Show>
@@ -847,7 +847,7 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                               <Show when={report().counts.onDiskUnlinked > 0}>
                                 <div class="hint">
                                   Rescan asks AniDB about the file again. If AniDB has no record of that release,
-                                  linking by hand is the fix — it only writes a cross reference, nothing on disk
+                                  linking by hand is the fix: it only writes a cross reference, nothing on disk
                                   changes. Across the whole collection Shoko has {report().collection.unlinked}{" "}
                                   unlinked file{report().collection.unlinked === 1 ? "" : "s"} of{" "}
                                   {report().collection.files}.
@@ -1062,7 +1062,7 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                         <div class="box-title">Request</div>
                         <div class="notice bad">
                           No confident TMDB match via Jellyseerr
-                          <Show when={anime().request?.error}>{error => <> — {error()}</>}</Show>. Open Jellyseerr and
+                          <Show when={anime().request?.error}>{error => <>: {error()}</>}</Show>. Open Jellyseerr and
                           request it manually.
                         </div>
                         <Show when={anime().links?.search}>
@@ -1207,7 +1207,7 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                                     TMDB has not tagged this with the <code>anime</code> keyword, so Jellyseerr on its
                                     own would use your standard TV settings. Hikari will override the request to the
                                     anime profile and root folder. Sonarr's series type still has to be corrected after
-                                    it is added — the button appears in the Sonarr box once it exists.
+                                    it is added. The button appears in the Sonarr box once it exists.
                                   </div>
                                 </Show>
                               </>
@@ -1217,14 +1217,14 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                           <Show when={skipped().length > 0}>
                             <div class="notice info">
                               Season{skipped().length === 1 ? "" : "s"} {skipped().join(", ")}{" "}
-                              {skipped().length === 1 ? "is" : "are"} already requested and will be skipped — only the
+                              {skipped().length === 1 ? "is" : "are"} already requested and will be skipped, so only the
                               rest gets sent, so nothing is duplicated.
                             </div>
                           </Show>
 
                           <Show when={!allDone() && chosenCount() === 0 && skipped().length === 0}>
                             <div class="notice info">
-                              Nothing preselected — Hikari could not tell which TMDB season this AniList entry maps
+                              Nothing preselected: Hikari could not tell which TMDB season this AniList entry maps
                               to, so pick the season you want.
                             </div>
                           </Show>
@@ -1242,7 +1242,7 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                             fallback={
                               <>
                                 <div class="notice ok">
-                                  Every season is already requested in Jellyseerr — nothing left to send from here.
+                                  Every season is already requested in Jellyseerr, so nothing is left to send from here.
                                 </div>
                                 <Show when={anime().links?.media}>
                                   {url => (
@@ -1273,7 +1273,7 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                                 </Show>
                                 <Show
                                   when={!requested()[props.id]}
-                                  fallback={<>Requested — waiting on Jellyseerr</>}
+                                  fallback={<>Requested, waiting on Jellyseerr</>}
                                 >
                                   Request {chosenCount()}{" "}
                                   {request().mediaType === "tv" ? "season" : "movie"}

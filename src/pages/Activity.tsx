@@ -52,13 +52,13 @@ export function Activity(props: { token: number }) {
           <h2 class="section-title">Sonarr queue</h2>
         </div>
         <Show when={data().errors.queue}>
-          {error => <div class="notice bad">Sonarr unreachable — {error()}</div>}
+          {error => <div class="notice bad">Sonarr unreachable: {error()}</div>}
         </Show>
         <Show
           when={data().queue.length > 0}
           fallback={
             <Show when={!data().errors.queue}>
-              <div class="notice info">Queue is empty — nothing downloading or importing.</div>
+              <div class="notice info">Queue is empty. Nothing downloading or importing.</div>
             </Show>
           }
         >
@@ -102,7 +102,7 @@ export function Activity(props: { token: number }) {
           <span class="section-note">anime library and anything currently active</span>
         </div>
         <Show when={data().errors.torrents}>
-          {error => <div class="notice bad">qBittorrent unreachable — {error()}</div>}
+          {error => <div class="notice bad">qBittorrent unreachable: {error()}</div>}
         </Show>
         <Show
           when={data().torrents.length > 0}
@@ -158,7 +158,7 @@ export function Activity(props: { token: number }) {
           <h2 class="section-title">Recent Jellyseerr requests</h2>
         </div>
         <Show when={data().errors.requests}>
-          {error => <div class="notice bad">Jellyseerr unreachable — {error()}</div>}
+          {error => <div class="notice bad">Jellyseerr unreachable: {error()}</div>}
         </Show>
         <Show
           when={data().requests.length > 0}

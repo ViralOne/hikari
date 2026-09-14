@@ -116,7 +116,7 @@ export function coerce(field, raw) {
   if (raw === null || raw === undefined) return null;
 
   // An empty field means "stop overriding this", for every type. Number("") is 0, so without
-  // this a cleared grace period became 0 hours — which is not "unset", it is "link brand new
+  // this a cleared grace period became 0 hours, which is not "unset" but "link brand new
   // files before AniDB has had any chance to match them".
   if (typeof raw === "string" && raw.trim() === "") return null;
 
@@ -168,7 +168,7 @@ export function coerce(field, raw) {
 
 // Which secret travels to which URL. Changing an address without supplying the matching secret
 // is refused, because otherwise repointing a URL is enough to have the server deliver a stored
-// key to an address of your choosing on its next poll — no need to ever read the key back.
+// key to an address of your choosing on its next poll, with no need to ever read the key back.
 const SECRET_FOR_URL = new Map([
   ["jellyseerr.url", "jellyseerr.key"],
   ["sonarr.url", "sonarr.key"],
@@ -180,7 +180,7 @@ const SECRET_FOR_URL = new Map([
 
 // What the environment and the built-in defaults said, captured before anything is applied.
 // Without it, clearing a field left the last saved value in `config` until a restart while the
-// settings screen reported the source as the environment — wrong, and silently so.
+// settings screen reported the source as the environment. Wrong, and silently so.
 const baseline = new Map(FIELDS.map(field => [field.key, read(config, field.key)]));
 
 // Applied as a whole layer rather than field by field, so removing an override restores the

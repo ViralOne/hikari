@@ -16,7 +16,7 @@ const FLOORS = {
 
 let failures = 0;
 const check = (name, pass, detail) => {
-  console.log(`  ${pass ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
+  console.log(`  ${pass ? "PASS" : "FAIL"}  ${name}${detail ? `: ${detail}` : ""}`);
   if (!pass) failures += 1;
 };
 

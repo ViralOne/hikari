@@ -108,7 +108,7 @@ export async function infoFor(anime) {
 // reference is what Shoko's UI calls unrecognised: it exists, it is hashed, but AniDB never
 // matched it, so it counts as a missing episode even though it is sitting on the disk.
 //
-// There is no server-side filter for "unlinked" — `include` only takes Ignored, MediaInfo,
+// There is no server-side filter for "unlinked": `include` only takes Ignored, MediaInfo,
 // XRefs, AbsolutePaths and ImportLimbo, and an unknown query parameter is silently dropped.
 // An earlier version passed include_unrecognized=only and got the unfiltered total back,
 // which reported every file in the collection as unrecognised.
@@ -206,7 +206,7 @@ export async function runAction(name) {
 }
 
 // The fix when AniDB simply has no record of the release: point the file at the episode by
-// hand. Metadata only — nothing on disk is touched.
+// hand. Metadata only, nothing on disk is touched.
 export async function linkFile(fileId, episodeIds) {
   await api(`/File/${Number(fileId)}/Link`, {
     method: "POST",

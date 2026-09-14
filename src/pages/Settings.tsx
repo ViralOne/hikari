@@ -143,7 +143,7 @@ export function Settings(props: { welcome: boolean; token: number; onSaved: () =
             <div class="brand-mark large" />
             <h1 class="setup-title">Welcome to Hikari</h1>
             <p class="setup-lede">
-              Point it at the services you already run. Only Jellyseerr is required — everything else adds
+              Point it at the services you already run. Only Jellyseerr is required. Everything else adds
               features and can be filled in later. Keys are stored on the server, never in your browser.
             </p>
           </div>
@@ -199,15 +199,15 @@ export function Settings(props: { welcome: boolean; token: number; onSaved: () =
                   {result => (
                     <div class={["notice", result().ok ? "ok" : "bad"]} role="status" aria-live="polite">
                       {result().ok
-                        ? `Reachable — ${result().detail}`
-                        : `Could not connect — ${result().error}`}
+                        ? `Reachable: ${result().detail}`
+                        : `Could not connect: ${result().error}`}
                     </div>
                   )}
                 </Show>
 
                 {/* Keyed by field name, not identity. Every save refetches and JSON gives back
                     brand new objects, so the default identity keying tore down and rebuilt the
-                    whole form — losing focus and anything half-typed in a field you had not
+                    whole form, losing focus and anything half-typed in a field you had not
                     touched. A custom key hands the callback an accessor. */}
                 <For each={fieldsFor(group.id)} keyed={field => field.key}>
                   {field => (

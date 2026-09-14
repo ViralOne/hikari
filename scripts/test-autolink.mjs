@@ -7,7 +7,7 @@ import { basename, hoursSince, withinADay } from "../server/dates.js";
 
 let failures = 0;
 const check = (name, pass, detail) => {
-  console.log(`  ${pass ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
+  console.log(`  ${pass ? "PASS" : "FAIL"}  ${name}${detail ? `: ${detail}` : ""}`);
   if (!pass) failures += 1;
 };
 

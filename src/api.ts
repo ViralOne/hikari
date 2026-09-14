@@ -276,7 +276,7 @@ export type SettingField = {
   max: number | null;
   /** Where the effective value came from: the settings file, the environment, or a built-in. */
   source: "settings" | "env" | "default";
-  /** Always null for secrets — the server never sends one back. */
+  /** Always null for secrets: the server never sends one back. */
   value: string | number | boolean | null;
   /** Last four characters of a secret, so you can tell which key is stored. */
   preview: string | null;

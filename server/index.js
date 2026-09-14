@@ -402,7 +402,7 @@ app.post("/api/sonarr/series/:id/series-type", async c => {
 });
 
 // Episodes AniDB says have aired but that are not on disk. AniDB numbers a split cour from 1
-// while Sonarr keeps TVDB's numbering, so episode numbers cannot be compared directly — the
+// while Sonarr keeps TVDB's numbering, so episode numbers cannot be compared directly. The
 // air date is the only field both sides agree on. Anything that does not match a single Sonarr
 // episode without a file is reported and left alone rather than guessed at.
 const MAX_SEARCH_EPISODES = 24;
@@ -747,7 +747,7 @@ app.post("/api/shoko/link/:anilistId/:fileId", async c => {
 });
 
 // Repairs Jellyfin's watch state from AniList. A Shokofin VFS rebuild creates new item ids and
-// Jellyfin keys played flags to item ids, so a rebuild silently orphans the whole history —
+// Jellyfin keys played flags to item ids, so a rebuild silently orphans the whole history,
 // which is why a season watched to episode 8 reads as 0 of 14.
 //
 // Only ever marks episodes played, never unmarks, and only up to the episode you name.
@@ -1008,7 +1008,7 @@ serve({ fetch: app.fetch, port: config.port, hostname: config.host }, info => {
   if (settingsFile.loaded) {
     console.log(`[hikari]   settings ${settingsFile.path} (${settingsFile.fields} overrides)`);
   } else if (!settings.isConfigured()) {
-    console.log("[hikari]   nothing configured yet — open the app and it will walk you through setup");
+    console.log("[hikari]   nothing configured yet, open the app and it will walk you through setup");
   }
   autolink.start();
 });

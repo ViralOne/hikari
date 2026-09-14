@@ -8,7 +8,7 @@ import * as sonarr from "./sonarr.js";
 //
 // Shoko links a file by asking AniDB for its ED2K hash. AniDB's file database is community
 // maintained, so a fresh WEB-DL from ToonsHub or VARYG frequently has no entry at all, and
-// Shoko has nothing to match against — there is no filename fallback, by design. The file
+// Shoko has nothing to match against, and there is no filename fallback by design. The file
 // then stays unlinked, which means Shokofin never puts it in the virtual file system, which
 // means Jellyfin cannot see an episode that is sitting on the disk.
 //
@@ -205,7 +205,7 @@ export async function sweep({ apply = true, maxPerRun = config.autoLink.maxPerRu
 
     // Give AniDB another go at whatever is left, so the next sweep can prefer a real match over
     // a hand link. Gated twice over: a dry run must stay read-only, and this is AniDB's UDP API,
-    // which bans clients that talk to it for no reason — an idle collection would otherwise poke
+    // which bans clients that talk to it for no reason, and an idle collection would otherwise poke
     // it every hour forever.
     if (apply && result.unlinked > linked.length) {
       await shoko.runAction("refresh-anidb").catch(() => null);
@@ -243,7 +243,7 @@ export async function sweep({ apply = true, maxPerRun = config.autoLink.maxPerRu
 
     if (linked.length > 0) {
       console.log(
-        `[hikari] auto-link: ${linked.length} file(s) linked — ` +
+        `[hikari] auto-link: ${linked.length} file(s) linked: ` +
           linked.map(item => `${item.series} ${item.sonarr}->ep ${item.anidbEpisode}`).join(", ")
       );
     }

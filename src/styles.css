@@ -1526,7 +1526,7 @@ select.field {
 }
 
 /* Touch devices have no hover, so every :hover rule fires on tap and then sticks until the next
-   tap elsewhere — a card left floating and shadowed after you closed its panel. */
+   tap elsewhere: a card left floating and shadowed after you closed its panel. */
 @media (hover: none) {
   .card:hover .card-art {
     transform: none;
