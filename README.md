@@ -17,6 +17,8 @@
 ## Current Features
 
 - Discover what is airing this season, trending, coming next and the all-time top, every card badged from your real library
+- **Continue the story**: sequels to what you have actually finished, taken from your AniList list and ordered by how you rated the show before it
+- Rows you can reorder and hide, so the deck opens on whatever you use
 - An airing schedule for the next 3, 7 or 14 days, filterable to just the shows you follow
 - Watch progress from Jellyfin: episodes watched, what is up next, and how many have aired but are not downloaded
 - Requests through Jellyseerr with the correct season worked out for you, and duplicates made impossible

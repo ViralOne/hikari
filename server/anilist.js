@@ -140,6 +140,34 @@ export function schedule(fromUnix, toUnix) {
   });
 }
 
+const BY_IDS_QUERY = `
+  query ($ids: [Int], $perPage: Int) {
+    Page(page: 1, perPage: $perPage) {
+      media(id_in: $ids, type: ANIME, isAdult: false) { ${MEDIA_FIELDS} }
+    }
+  }
+`;
+
+// AniList caps perPage at 50, so a longer list of ids has to be asked for in chunks. Sorted before
+// keying so the same set of ids in a different order is one cache entry rather than two.
+export async function byIds(ids, ttlMs = 60 * 60 * 1000) {
+  const unique = [...new Set(ids.map(Number).filter(Number.isInteger))].sort((a, b) => a - b);
+  if (unique.length === 0) return [];
+
+  const chunks = [];
+  for (let i = 0; i < unique.length; i += 50) chunks.push(unique.slice(i, i + 50));
+
+  const pages = await Promise.all(
+    chunks.map(chunk =>
+      cached(`anilist:ids:${chunk.join(",")}`, ttlMs, async () => {
+        const data = await gql(BY_IDS_QUERY, { ids: chunk, perPage: chunk.length });
+        return data.Page.media.map(shape);
+      })
+    )
+  );
+  return pages.flat();
+}
+
 const BY_ID_QUERY = `query ($id: Int) { Media(id: $id, type: ANIME) { ${MEDIA_FIELDS} } }`;
 
 export function byId(id) {

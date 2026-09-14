@@ -17,6 +17,7 @@ import * as jellyfin from "./jellyfin.js";
 import * as radarr from "./radarr.js";
 import * as shoko from "./shoko.js";
 import * as anilistList from "./anilist-list.js";
+import * as sequels from "./sequels.js";
 import * as autolink from "./autolink.js";
 import * as settings from "./settings.js";
 import * as auth from "./auth.js";
@@ -292,16 +293,26 @@ app.get("/api/discover", async c => {
   const now = anilist.currentSeason();
   const next = anilist.shiftSeason(now, 1);
 
-  const [airing, trending, upcoming, top] = await Promise.all([
+  const problems = {};
+
+  const [airing, trending, upcoming, top, continuing] = await Promise.all([
     anilist.page({ season: now.season, seasonYear: now.year, sort: ["POPULARITY_DESC"], perPage: 30 }),
     anilist.page({ sort: ["TRENDING_DESC"], perPage: 30 }),
     anilist.page({ season: next.season, seasonYear: next.year, sort: ["POPULARITY_DESC"], perPage: 30 }),
-    anilist.page({ sort: ["SCORE_DESC"], perPage: 30 }, 6 * 60 * 60 * 1000)
+    anilist.page({ sort: ["SCORE_DESC"], perPage: 30 }, 6 * 60 * 60 * 1000),
+    // Needs your list, so it is empty without a token, and a failure here must not cost you the
+    // whole page: the other four rows do not depend on it.
+    sequels.sequels().catch(err => {
+      problems.anilistList = err.message;
+      return [];
+    })
   ]);
 
-  const problems = {};
   const rows = await Promise.all(
     [
+      // First when there is anything in it. A sequel to something you finished beats anything a
+      // popularity sort can offer, which is the whole reason the row exists.
+      { id: "continuing", title: "Continue the story", media: continuing },
       { id: "airing", title: `Airing now · ${label(now)}`, media: airing.media },
       { id: "trending", title: "Trending this week", media: trending.media },
       { id: "upcoming", title: `Coming next · ${label(next)}`, media: upcoming.media },
@@ -310,6 +321,17 @@ app.get("/api/discover", async c => {
   );
 
   return c.json({ season: now, rows, errors: problems });
+});
+
+// The same row Discover shows, on its own, so it can be polled or read without paying for the
+// other four rows.
+app.get("/api/sequels", async c => {
+  if (!enabled.anilistList) {
+    return c.json({ configured: false, media: [], detail: "Needs an AniList token to read your list" });
+  }
+  const problems = {};
+  const media = await annotate(await sequels.sequels(), problems);
+  return c.json({ configured: true, media, errors: problems });
 });
 
 app.get("/api/schedule", async c => {

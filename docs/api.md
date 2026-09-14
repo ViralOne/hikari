@@ -5,7 +5,8 @@
 | Route | Purpose |
 | --- | --- |
 | `GET /api/health` | Per-service connectivity and detected versions |
-| `GET /api/discover` | The four Discover rows, annotated with library and progress |
+| `GET /api/discover` | The Discover rows, annotated with library and progress |
+| `GET /api/sequels` | Sequels to what you have finished, from your AniList list. Needs `ANILIST_TOKEN` |
 | `GET /api/schedule?days=7` | Airing schedule, 1 to 14 days |
 | `GET /api/search?q=&season=&year=&format=&genre=` | AniList search |
 | `GET /api/anime/:anilistId` | Full detail: library match, watch progress, season list, request state |

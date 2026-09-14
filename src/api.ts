@@ -89,6 +89,8 @@ export type Anime = {
   watch?: Watch | null;
   list?: ListEntry | null;
   shoko?: ShokoInfo | null;
+  /** Only on the "Continue the story" row: which of your finished shows this follows. */
+  because?: { id: number; title: string; score: number; status: string } | null;
 };
 
 export type SeerrLinks = { media: string | null; search: string | null };

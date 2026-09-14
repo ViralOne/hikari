@@ -124,5 +124,7 @@ export async function saveEntry({ mediaId, status, progress, score }) {
 
   const data = await gqlAuthed(SAVE, variables);
   invalidate("anilist:list");
+  // Adding something to the list means it is no longer a discovery, so the sequel row is stale too.
+  invalidate("anilist:sequels");
   return data.SaveMediaListEntry;
 }
