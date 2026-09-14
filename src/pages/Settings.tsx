@@ -1,5 +1,12 @@
 import { createMemo, createSignal, For, Loading, Show } from "solid-js";
-import { getSettings, saveSettings, testService, type SettingField } from "../api";
+import {
+  generateToken,
+  getSettings,
+  removeToken,
+  saveSettings,
+  testService,
+  type SettingField
+} from "../api";
 import { Icon } from "../components/Icon";
 
 // Groups in the order a first run wants them: the one required service, then the ones that add
@@ -54,6 +61,12 @@ const GROUPS: Array<{
     id: "auth",
     title: "Login",
     blurb: "Require a Jellyfin username and password before Hikari will show anything."
+  },
+  {
+    id: "token",
+    title: "API token",
+    blurb:
+      "One secret for the callers that cannot hold a session cookie: the Homepage widget, the Sonarr webhook, and your own scripts."
   },
   { id: "autolink", title: "Automatic linking", blurb: "Keeps Shoko's episode links in step with Sonarr." },
   { id: "general", title: "General", blurb: "" }
@@ -110,10 +123,11 @@ export function Settings(props: { welcome: boolean; token: number; onSaved: () =
       setOutcome({
         ok: false,
         // The built-in UI cannot send the shared secret, so this is the one failure that needs
-        // explaining rather than repeating.
+        // explaining rather than repeating. It now only happens with a token set and the login off,
+        // since a signed-in session satisfies the token check.
         message:
           message === "unauthorized"
-            ? "HIKARI_TOKEN is set, so this screen cannot save. Configure with environment variables, or unset the token and put authentication in your reverse proxy instead."
+            ? "A token is set and the login is off, so this screen cannot save. Turn the login on to edit settings in the browser, or configure with environment variables."
             : message
       });
     } finally {
@@ -139,6 +153,76 @@ export function Settings(props: { welcome: boolean; token: number; onSaved: () =
   };
 
   const fieldsFor = (group: string) => data().fields.filter(field => field.group === group);
+
+  // A managed field has its own control, so it must not also appear as an input the save button
+  // would try to send. The server refuses it, which would only ever read as a bug here.
+  const editableFieldsFor = (group: string) => fieldsFor(group).filter(field => !field.managed);
+
+  const tokenField = createMemo(() => data().fields.find(field => field.key === "token") ?? null);
+
+  // The saved value, not the draft: generating is refused until the login is actually on, and it is
+  // only on once it has been saved. A pending tick in the form is worth mentioning, not obeying.
+  const loginOn = createMemo(() => Boolean(data().fields.find(field => field.key === "auth.enabled")?.value));
+  const loginPending = createMemo(() => !loginOn() && draft()["auth.enabled"] === true);
+
+  const [revealed, setRevealed] = createSignal<string | null>(null);
+  const [tokenBusy, setTokenBusy] = createSignal(false);
+  const [tokenNote, setTokenNote] = createSignal<{ ok: boolean; message: string } | null>(null);
+  const [copied, setCopied] = createSignal(false);
+
+  const generate = async () => {
+    setTokenBusy(true);
+    setTokenNote(null);
+    setCopied(false);
+    try {
+      const result = await generateToken();
+      // Held in a signal rather than refetched, because this is the only response that carries it.
+      setRevealed(result.token);
+      setTick(value => value + 1);
+      props.onSaved();
+    } catch (err) {
+      // Whatever is on screen is deliberately left alone. A failed regenerate means the old token is
+      // still the live one, and this is the only place it is ever shown, so clearing it here would
+      // destroy a working secret the moment the network hiccuped.
+      setTokenNote({ ok: false, message: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setTokenBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setTokenBusy(true);
+    setTokenNote(null);
+    try {
+      const result = await removeToken();
+      setRevealed(null);
+      setTokenNote({
+        ok: true,
+        message: result.fromEnv
+          ? `Removed. ${tokenField()?.env ?? "HIKARI_TOKEN"} still sets one, so that is what applies now.`
+          : "Removed. Nothing needs a token now."
+      });
+      setTick(value => value + 1);
+      props.onSaved();
+    } catch (err) {
+      setTokenNote({ ok: false, message: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setTokenBusy(false);
+    }
+  };
+
+  // navigator.clipboard does not exist on a plain-http origin that is not localhost, which is
+  // exactly how a LAN install is reached, so selecting the text is the fallback rather than an
+  // afterthought.
+  const copy = async (value: string, input?: HTMLInputElement) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+    } catch {
+      input?.select();
+      setCopied(false);
+    }
+  };
 
   return (
     <Loading fallback={<div class="section"><div class="skeleton" style={{ height: "420px" }} /></div>}>
@@ -210,11 +294,115 @@ export function Settings(props: { welcome: boolean; token: number; onSaved: () =
                   )}
                 </Show>
 
+                <Show when={group.id === "token" && tokenField()}>
+                  {field => (
+                    <div class="token-panel">
+                      <div class="token-state">
+                        <Show
+                          when={field().set}
+                          fallback={<span class="token-status">No token yet</span>}
+                        >
+                          <span class="token-status">
+                            <span class="badge owned">active</span>
+                            <code>{field().preview}</code>
+                          </span>
+                          <span class="setup-source">
+                            {field().source === "env"
+                              ? `from ${field().env}`
+                              : "generated here"}
+                          </span>
+                        </Show>
+                      </div>
+
+                      <Show when={!loginOn()}>
+                        <div class="notice" role="status">
+                          {loginPending()
+                            ? "Save the login setting first. A token can only be generated once Hikari knows who you are."
+                            : "Turn the login on above and save, then a token can be generated here. Without a login, anyone who can reach this port could generate one, so Hikari will not offer it."}
+                        </div>
+                      </Show>
+
+                      <Show when={field().source === "env" && loginOn()}>
+                        <p class="setup-hint">
+                          {field().env} is set, so generating one here will override it until you remove it
+                          again.
+                        </p>
+                      </Show>
+
+                      <Show when={tokenNote()}>
+                        {note => (
+                          <div class={["notice", note().ok ? "ok" : "bad"]} role="status" aria-live="polite">
+                            {note().message}
+                          </div>
+                        )}
+                      </Show>
+
+                      <Show when={revealed()}>
+                        {value => {
+                          let input: HTMLInputElement | undefined;
+                          return (
+                            <div class="token-reveal">
+                              <p class="token-warn">
+                                Copy this now. Hikari never shows it again — later visits see only the
+                                last four characters, so if you lose it you will have to generate a new
+                                one.
+                              </p>
+                              <div class="token-value">
+                                <input
+                                  ref={input}
+                                  class="field"
+                                  readonly
+                                  value={value()}
+                                  spellcheck={false}
+                                  onFocus={event => event.currentTarget.select()}
+                                />
+                                <button class="btn tiny" onClick={() => copy(value(), input)}>
+                                  {copied() ? "Copied" : "Copy"}
+                                </button>
+                              </div>
+                              <p class="setup-hint">
+                                Send it as <code>X-Hikari-Token</code> or{" "}
+                                <code>Authorization: Bearer …</code>. For Homepage, put it under{" "}
+                                <code>headers</code> on the widget.
+                              </p>
+                            </div>
+                          );
+                        }}
+                      </Show>
+
+                      <div class="token-actions">
+                        <button
+                          class="btn primary tiny"
+                          disabled={tokenBusy() || !loginOn()}
+                          onClick={generate}
+                        >
+                          <Show when={field().set} fallback={<>Generate token</>}>
+                            <Icon name="refresh" size={14} />
+                            Regenerate
+                          </Show>
+                        </button>
+                        <Show when={field().source === "settings"}>
+                          <button class="btn ghost tiny" disabled={tokenBusy() || !loginOn()} onClick={remove}>
+                            Remove
+                          </button>
+                        </Show>
+                      </div>
+
+                      <Show when={field().set}>
+                        <p class="setup-hint">
+                          Regenerating takes effect at once, so anything still sending the old token stops
+                          working until you update it.
+                        </p>
+                      </Show>
+                    </div>
+                  )}
+                </Show>
+
                 {/* Keyed by field name, not identity. Every save refetches and JSON gives back
                     brand new objects, so the default identity keying tore down and rebuilt the
                     whole form, losing focus and anything half-typed in a field you had not
                     touched. A custom key hands the callback an accessor. */}
-                <For each={fieldsFor(group.id)} keyed={field => field.key}>
+                <For each={editableFieldsFor(group.id)} keyed={field => field.key}>
                   {field => (
                     <div class={["setup-field", { switch: field().type === "boolean" }]}>
                       <label class="setup-label" for={`set-${field().key}`}>

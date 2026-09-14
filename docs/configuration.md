@@ -34,7 +34,7 @@ Every variable goes in `.env`. Anything left blank disables its feature rather t
 | `AUTH_FILE` | no | Where the session signing key lives. Default `/cache/hikari-auth.json` |
 | `SETTINGS_FILE` | no | Where settings saved in the app are written. Default `/cache/hikari-settings.json` |
 | `CACHE_FILE` | no | Path for the cache snapshot, so a restart does not re-fetch AniList |
-| `HIKARI_TOKEN` | no | Shared secret required on the routes that change things. See Security |
+| `HIKARI_TOKEN` | no | Shared secret required on the routes that change things. Generate one under Settings instead, once the login is on. See [Security](security.md) |
 | `HOST` | no | Bind address. Default `0.0.0.0`; use `127.0.0.1` for local-only |
 | `PORT` | no | Default `7997` |
 

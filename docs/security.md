@@ -45,11 +45,40 @@ poll, without ever reading the key back. Two things limit that: changing a URL i
 the matching key is supplied in the same save, and `GET /api/settings` requires the token when one
 is set, because it describes every service address and the last four characters of every key.
 
-`HIKARI_TOKEN` makes the state-changing endpoints require `Authorization: Bearer <token>`. Note the
-trade-off: **the built-in web UI does not send this header**, so setting it turns the browser into a
-read-only client and the settings screen becomes read-only with configuration coming from
-environment variables. If you want both a protected port and browser setup, turn on the login below,
-or put authentication in your reverse proxy, and leave `HIKARI_TOKEN` unset.
+`HIKARI_TOKEN` makes the state-changing endpoints require `Authorization: Bearer <token>`, or
+`X-Hikari-Token: <token>` if that is easier to configure. A signed-in session satisfies the same
+check, so the two are alternatives rather than a pair: the token exists for the callers that cannot
+hold a cookie.
+
+**With the login off, a token turns the browser into a read-only client.** There is no session for it
+to fall back on, so the settings screen can no longer save and configuration has to come from
+environment variables. Either turn the login on, or leave the token unset and put authentication in
+your reverse proxy.
+
+### Generating a token
+
+Once the login is on, **Settings → API token → Generate** mints one. It is 32 random bytes,
+base64url, stored in the settings file at mode 600 like every other secret.
+
+The value is shown **once**, at the moment it is generated. The settings screen never shows it again;
+later visits see only its last four characters, the same as any other saved secret. If you lose it,
+generate a new one. Note what this is and is not: the token is stored in plaintext in the settings
+file, because it has to be compared against what callers send, so a copy of that file or of the
+`/cache` volume is a copy of the token. "Not shown again" is about the browser, not about the disk.
+
+- **Regenerate** replaces it immediately. Anything still sending the old value starts getting `401`,
+  so update Homepage and any scripts in the same sitting.
+- **Remove** deletes the override and hands the field back to `HIKARI_TOKEN`, which may still supply
+  one. The screen says which of the two you end up with.
+- Minting or removing one takes a **Jellyfin administrator** session, or a caller already holding the
+  current token, since a script with the secret is automation you set up rather than a stranger.
+- It is refused with `409` in exactly one case: the login is off **and** no token is set yet. That is
+  the only state where nothing else is standing in the way — `/api/settings` is open to anyone who can
+  reach the port — so without the refusal a stranger on your LAN could mint the secret and lock you
+  out of your own instance. Once a token exists, holding it is proof enough to rotate or remove it
+  whether the login is on or not, which is what stops turning the login off from becoming a trap.
+- `POST /api/settings` refuses the `token` field, so the only way to set it is the dedicated route.
+  You cannot choose the value; a generated one is uniformly random, which a chosen one rarely is.
 
 ## Requiring a login
 
@@ -88,9 +117,10 @@ Details worth knowing:
   everywhere**, in the Services panel, bumps a generation counter that invalidates every token
   issued before it. It needs a valid session or the token, since otherwise it would be a one-line
   way for anyone to keep the household signed out.
-- `HIKARI_TOKEN` still works while login is on, so scripts and the Homepage widget keep running
-  without a cookie. The Sonarr webhook is exempt from the login **only when `HIKARI_TOKEN` is set**,
-  because Sonarr cannot hold a cookie. With no token, the login covers it too.
+- A token still works while the login is on, so scripts and the Homepage widget keep running without
+  a cookie, and a signed-in session works wherever the token does. That means turning the token on no
+  longer costs you the browser: you can have both. The Sonarr webhook is exempt from the login **only
+  when a token is set**, because Sonarr cannot hold a cookie. With no token, the login covers it too.
 - Turning this on with no reachable Jellyfin locks Hikari rather than leaving it open: every request
   answers `503` and the login screen tells you how to undo it. A control that fails open is worse
   than one that locks you out, because nothing tells you the door is ajar.

@@ -26,12 +26,23 @@
 | `GET /api/settings` | Every setting, its source, and whether a secret is set. Never returns a secret |
 | `POST /api/settings` | Saves settings. An empty value clears the override |
 | `POST /api/settings/test` | Probes one service, with unsaved values if you pass them |
-
-The three settings routes need a Jellyfin administrator account when the login is on, or the shared
-token when one is set. Everything else needs any signed-in account. With the login off and no token,
-the whole API is open, which is why the port belongs on a trusted network.
+| `POST /api/settings/token` | Generates the shared secret and returns it once. `409` if the login is off and no token is set |
+| `DELETE /api/settings/token` | Removes it, handing the field back to `HIKARI_TOKEN`. Same `409` |
 | `GET /api/autolink` | Automatic linking status and last run |
 | `POST /api/autolink` | Runs a sweep. Dry run unless `{"confirm":true}` |
 | `POST /api/hooks/sonarr` | Sonarr Connect webhook target |
 | `GET /api/activity` | Sonarr queue, torrents, recent requests, and per-section errors |
 | `GET /api/homepage` | Flat counters for a dashboard widget |
+
+The settings routes need a Jellyfin administrator account when the login is on, or the shared token
+when one is set. Everything else needs any signed-in account, and a signed-in session satisfies the
+token check too, so the browser keeps working once a token exists. With the login off and no token,
+the whole API is open, which is why the port belongs on a trusted network.
+
+`POST /api/settings` refuses the `token` field with `400`: the secret is only settable through
+`POST /api/settings/token`, which returns the generated value in `{"token": "..."}`. That is the only
+response that ever carries it, so store it when you see it.
+
+The two token routes take no body, but send `Content-Type: application/json` anyway. Without it the
+CSRF check treats the request as form-like and compares the `Origin` header, which a plain `curl` does
+not send, so you get `403` and a non-JSON body.

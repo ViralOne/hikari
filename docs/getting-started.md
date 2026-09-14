@@ -58,9 +58,13 @@ Precedence is simple: a value saved in the app wins, otherwise the environment v
 the built-in default. Clearing a field in the UI hands it back to the environment. Nothing Hikari
 writes ever touches your `.env`.
 
-`PORT`, `HOST` and `HIKARI_TOKEN` are environment-only on purpose. The first two need a restart to
-mean anything, and letting the network set the secret that guards the network-facing routes would
-defeat the point of having one.
+`PORT` and `HOST` are environment-only on purpose, because both need a restart to mean anything.
+
+`HIKARI_TOKEN` is a special case: it cannot be typed into the settings form, but once the login is on
+a Jellyfin administrator can **generate** one under Settings → API token. Letting anyone who can
+reach the port choose the secret that guards the network-facing routes would defeat the point of
+having one, so the value is always minted by the server and never chosen by the caller. See
+[Security](security.md).
 
 ### Using the prebuilt image
 

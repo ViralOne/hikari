@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { config, enabled, recompute } from "./config.js";
@@ -9,13 +10,6 @@ import { invalidate } from "./cache.js";
 // Environment variables still work and are the fallback for every field, which keeps existing
 // deployments working untouched. What the UI saves is an override layer: it is written to disk
 // on its own, so nothing here ever rewrites your .env.
-//
-// PORT, HOST and HIKARI_TOKEN are deliberately not settable. The first two need a restart to
-// mean anything, and letting the network set the shared secret that protects the network-facing
-// routes would defeat the point of having one. TRUST_PROXY, RATE_LIMIT_PER_MINUTE and AUTH_FILE are
-// left out for the same reason: they are the limits, so they do not belong to whoever is being
-// limited.
-
 const FILE = (process.env.SETTINGS_FILE || "/cache/hikari-settings.json").trim();
 
 export const FIELDS = [
@@ -103,6 +97,15 @@ export const FIELDS = [
     hint: "Comma separated. Blank allows any Jellyfin account"
   },
   { key: "auth.sessionDays", env: "AUTH_SESSION_DAYS", type: "number", min: 1, max: 365, group: "auth", label: "Stay signed in for (days)" },
+  {
+    key: "token",
+    env: "HIKARI_TOKEN",
+    type: "secret",
+    group: "token",
+    label: "API token",
+    managed: true,
+    hint: "For Homepage, scripts and the Sonarr webhook, which cannot hold a session cookie"
+  },
   { key: "autoLink.enabled", env: "AUTO_LINK", type: "boolean", group: "autolink", label: "Link unmatched files automatically" },
   { key: "autoLink.intervalMinutes", env: "AUTO_LINK_INTERVAL_MINUTES", type: "number", min: 5, max: 1440, group: "autolink", label: "Every (minutes)" },
   { key: "autoLink.graceHours", env: "AUTO_LINK_GRACE_HOURS", type: "number", min: 0, max: 168, group: "autolink", label: "Leave new files to AniDB for (hours)" },
@@ -260,6 +263,13 @@ export function update(patch) {
   const unknown = Object.keys(patch).filter(key => !BY_KEY.has(key));
   if (unknown.length) throw new SettingsError(`unknown setting${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}`);
 
+  // Refused here rather than filtered out, so a caller trying to set the shared secret through the
+  // ordinary patch gets told no instead of a silent success that changed nothing.
+  const managed = Object.keys(patch).filter(key => BY_KEY.get(key).managed);
+  if (managed.length) {
+    throw new SettingsError(`${managed.join(", ")} cannot be set here, it has its own generate button`);
+  }
+
   // Validated in full before anything is written. Coercing straight into `overrides` left the
   // values from before a mid-loop rejection sitting in memory, to be persisted silently by the
   // next unrelated save and absent from `changed`.
@@ -306,6 +316,45 @@ export function update(patch) {
   return { changed };
 }
 
+// Rolled back if the write fails, for the same reason `update` stages its values before writing any
+// of them. A token left in `overrides` after a failed persist is invisible to everyone, because the
+// value was never returned to the caller, and the next unrelated save would persist and activate it.
+// Every token-authenticated client would then start getting 401 against a secret nobody has seen.
+function setOverride(key, value) {
+  const previous = read(overrides, key);
+  write(overrides, key, value);
+  try {
+    persist();
+  } catch (err) {
+    write(overrides, key, previous);
+    throw err;
+  }
+  apply();
+}
+
+// 32 bytes, the same size as the session signing key. base64url so it survives a header, a YAML
+// file and a query string without anything having to be escaped.
+export function generateToken() {
+  const value = randomBytes(32).toString("base64url");
+  setOverride("token", value);
+
+  // Deliberately no invalidate(): the token is not a service address, so nothing that is cached was
+  // produced by the old value.
+  console.log("[hikari] a new API token was generated");
+  return value;
+}
+
+// Removing the override hands the field back to HIKARI_TOKEN, exactly like clearing any other one.
+// So this is "stop using the generated token", not necessarily "there is now no token".
+export function clearToken() {
+  const had = read(overrides, "token") !== undefined;
+  if (had) {
+    setOverride("token", undefined);
+    console.log("[hikari] the generated API token was removed");
+  }
+  return { cleared: had, fromEnv: Boolean(config.token) };
+}
+
 const mask = value => {
   if (!value) return null;
   const text = String(value);
@@ -330,6 +379,9 @@ export function describe() {
         type: field.type,
         group: field.group,
         label: field.label,
+        // The browser has to know not to render this as an editable input, since saving one would
+        // be refused. It gets its own control instead.
+        managed: Boolean(field.managed),
         hint: field.hint ?? null,
         placeholder: field.placeholder ?? null,
         min: field.min ?? null,

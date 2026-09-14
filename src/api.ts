@@ -283,6 +283,8 @@ export type SettingField = {
   type: "url" | "secret" | "text" | "boolean" | "number" | "list";
   group: string;
   label: string;
+  /** Has its own control instead of an input: saving it through the patch is refused. */
+  managed: boolean;
   hint: string | null;
   placeholder: string | null;
   min: number | null;
@@ -334,6 +336,28 @@ export const saveSettings = (patch: Record<string, string | number | boolean>) =
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch)
+  });
+
+// Neither route reads a body, but the header still has to be sent. Hono's csrf() treats a missing
+// Content-Type as text/plain, which is form-like, so it falls back to comparing the Origin against
+// the request URL: that breaks a plain curl (no Origin at all, so 403 with a non-JSON body) and any
+// browser behind a TLS-terminating proxy that does not send Sec-Fetch-Site, since the comparison
+// never consults x-forwarded-proto. Declaring JSON skips that path, exactly as every other mutating
+// call here already does.
+const TOKEN_HEADERS = { "Content-Type": "application/json" };
+
+/**
+ * Mints a new shared secret and returns it in the clear. This is the only response that ever
+ * carries it, so whatever calls this has to show it to the user straight away.
+ */
+export const generateToken = () =>
+  json<Settings & { token: string }>("/api/settings/token", { method: "POST", headers: TOKEN_HEADERS });
+
+/** Hands the field back to HIKARI_TOKEN, which may still supply one. */
+export const removeToken = () =>
+  json<Settings & { cleared: boolean; fromEnv: boolean }>("/api/settings/token", {
+    method: "DELETE",
+    headers: TOKEN_HEADERS
   });
 
 export const testService = (service: string, url?: string, key?: string) =>

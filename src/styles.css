@@ -1214,6 +1214,69 @@ select.field {
   height: 36px;
 }
 
+.token-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.token-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.token-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.token-status code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.token-reveal {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(124, 92, 255, 0.4);
+  border-radius: 10px;
+  background: var(--accent-soft);
+}
+
+.token-warn {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.token-value {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* The token is 43 characters, so the input takes the room rather than the button. */
+.token-value input.field {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.token-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .setup-actions {
   display: flex;
   flex-wrap: wrap;
