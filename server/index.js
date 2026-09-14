@@ -122,6 +122,11 @@ app.use("/api/*", async (c, next) => {
 
   const path = c.req.path;
   if (path === "/api/auth" || path.startsWith("/api/auth/")) return next();
+  // The container healthcheck is a bare fetch with no cookie and no token, so turning the login on
+  // used to mark the container unhealthy for as long as it stayed on. Liveness is exempt because it
+  // says nothing beyond "the process is answering". The detailed /api/health is not, because it
+  // names every configured service and its version.
+  if (path === "/api/health/live") return next();
   // Sonarr's Connect cannot hold a cookie, so the webhook is exempt, but only when the shared
   // secret is actually set. Exempting it unconditionally left it open on a login-only install.
   if (path.startsWith("/api/hooks/") && config.token) return next();
@@ -257,6 +262,11 @@ async function annotate(media, problems = {}) {
   );
   return Array.isArray(media) ? enriched : enriched[0];
 }
+
+// Liveness, not readiness: it answers as long as the process is serving, and deliberately reveals
+// nothing about the configuration. This is what the container healthcheck polls, so an upstream
+// service being down is never a reason to restart Hikari.
+app.get("/api/health/live", c => c.json({ ok: true }));
 
 app.get("/api/health", async c => {
   const checks = {};

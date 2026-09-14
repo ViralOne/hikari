@@ -4,6 +4,7 @@
 
 | Route | Purpose |
 | --- | --- |
+| `GET /api/health/live` | `{"ok":true}` as long as the process is serving. The only route the login never gates, because the container healthcheck cannot hold a cookie |
 | `GET /api/health` | Per-service connectivity and detected versions |
 | `GET /api/discover` | The Discover rows, annotated with library and progress |
 | `GET /api/sequels` | Sequels to what you have finished, from your AniList list. Needs `ANILIST_TOKEN` |

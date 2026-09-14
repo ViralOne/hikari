@@ -186,6 +186,16 @@ try {
   const anonymous = await call("/api/settings/token", { method: "POST" });
   check("an unauthenticated caller cannot generate one", anonymous.status === 401, `got ${anonymous.status}`);
 
+  // The container healthcheck holds no credential of any kind, so the login gate turning it into a
+  // 401 made Docker report the container unhealthy the moment the login went on. Liveness answers
+  // anyway; the detailed probe, which lists every configured service, still does not.
+  const liveness = await call("/api/health/live");
+  check("liveness answers with no credential, so the healthcheck passes", liveness.status === 200, `got ${liveness.status}`);
+  const livenessBody = await liveness.text();
+  check("and it reveals nothing about the configuration", livenessBody === '{"ok":true}', livenessBody);
+  const detailed = await call("/api/health");
+  check("the detailed probe still requires a session or a token", detailed.status === 401, `got ${detailed.status}`);
+
   const asGuest = await call("/api/settings/token", { method: "POST", cookie: guestCookie });
   check("a signed-in non-administrator cannot generate one", asGuest.status === 403, `got ${asGuest.status}`);
 

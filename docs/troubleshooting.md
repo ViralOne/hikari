@@ -14,6 +14,11 @@ titles. If a series folder is named after a release rather than the show, rename
 **Watch progress is missing.** Check that `JELLYFIN_URL` and `JELLYFIN_API_KEY` are set, and that
 `JELLYFIN_USER_ID` points at the account that actually watches things.
 
+**Docker says the container is unhealthy but the app works.** Up to 0.4.6 the healthcheck polled
+`/api/health`, which the login gates, so switching the login on made every check a `401`. Rebuild to
+get the fix; the check now polls `/api/health/live`. Note that a red service dot never makes the
+container unhealthy — restarting Hikari would not fix an upstream service being down.
+
 **Requests land in the wrong folder.** Set an anime quality profile and root folder on your
 Jellyseerr Sonarr server. Without them, Hikari refuses to request rather than sending the show to
 your regular TV folder.
