@@ -75,14 +75,22 @@ function projectDetail(detail) {
   };
 }
 
+// Short on purpose. This response carries mediaInfo, which is where "already requested" comes from,
+// and requests get deleted in Jellyseerr's own UI where Hikari cannot see it happen. Cached for an
+// hour, deleting a request left the panel insisting every season was still requested until the entry
+// expired, with no way to clear it. There is no webhook for a deleted request, so the only honest
+// option is to re-read.
+//
+// The cost is one call to a service on the same LAN per panel open: resolve() is the only caller
+// besides the request route, and it runs once per detail view rather than per card.
+export const DETAIL_TTL_MS = 30 * 1000;
+
 export function tvDetail(tmdbId) {
-  return cached(`seerr:tv:${tmdbId}`, 60 * 60 * 1000, async () => projectDetail(await api(`/tv/${tmdbId}`)));
+  return cached(`seerr:tv:${tmdbId}`, DETAIL_TTL_MS, async () => projectDetail(await api(`/tv/${tmdbId}`)));
 }
 
 export function movieDetail(tmdbId) {
-  return cached(`seerr:movie:${tmdbId}`, 60 * 60 * 1000, async () =>
-    projectDetail(await api(`/movie/${tmdbId}`))
-  );
+  return cached(`seerr:movie:${tmdbId}`, DETAIL_TTL_MS, async () => projectDetail(await api(`/movie/${tmdbId}`)));
 }
 
 export function sonarrServers() {
@@ -186,6 +194,7 @@ export async function resolve(anime) {
   try {
     const detail = item.mediaType === "tv" ? await tvDetail(item.id) : await movieDetail(item.id);
     result.animeKeyword = hasAnimeKeyword(detail);
+    result.status = detail.mediaInfo ? STATUS[detail.mediaInfo.status] || "none" : "none";
   } catch {
     result.animeKeyword = null;
   }

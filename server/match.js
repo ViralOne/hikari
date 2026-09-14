@@ -167,8 +167,12 @@ export function guessSeasonNumber(anime, seasons) {
     if (closest && closest.gap < 400 * 24 * 3600 * 1000) return closest.seasonNumber;
   }
 
-  if (anime.prequelCount > 0 && real.some(s => s.seasonNumber === anime.prequelCount + 1)) {
-    return anime.prequelCount + 1;
+  // The length of the prequel chain, not the number of direct edges: a third season has one
+  // PREQUEL edge but two seasons before it. anilist.prequelDepth walks the chain and returns null
+  // when it cannot, which must not be read as zero.
+  const depth = Number.isInteger(anime.prequelDepth) ? anime.prequelDepth : null;
+  if (depth !== null && depth > 0 && real.some(s => s.seasonNumber === depth + 1)) {
+    return depth + 1;
   }
   return null;
 }

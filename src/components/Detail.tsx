@@ -6,6 +6,7 @@ import {
   linkAllShokoFiles,
   linkShokoFile,
   markJellyfinPlayed,
+  narrowToCour,
   postRequest,
   refreshJellyfinLibrary,
   rescanShokoFile,
@@ -14,11 +15,13 @@ import {
   searchMissingEpisodes,
   setSonarrSeriesType,
   type MissingSearchPlan,
+  type NarrowMode,
   type PlayedPlan,
   type SeasonInfo,
   type ShokoAction
 } from "../api";
 import { bytes, formatLabel, seasonLabel, statusLabel } from "../format";
+import { CourActions, LumpedNotice, NarrowNotice } from "./CourNotice";
 import { Icon } from "./Icon";
 
 type Selection = number[] | "all";
@@ -38,7 +41,12 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
   const [drafts, setDrafts] = createSignal<Record<number, number>>({});
   const [plans, setPlans] = createSignal<Record<number, MissingSearchPlan>>({});
   const [played, setPlayed] = createSignal<Record<number, PlayedPlan>>({});
+  // Whether a request should skip the cour logic and take every season. Keyed by anime id like the
+  // rest, because the panel is reused rather than remounted when another title is opened.
+  const [wantsWhole, setWantsWhole] = createSignal<Record<number, boolean>>({});
   let followUp: ReturnType<typeof setTimeout> | undefined;
+  // Narrowing polls, so there are several timers rather than one. All of them are cleared on close.
+  let narrowTimers: Array<ReturnType<typeof setTimeout>> = [];
 
   const defaultSelection = (seasons: SeasonInfo[] | null | undefined, suggested: number | null | undefined): Selection => {
     if (!seasons || seasons.length === 0) return "all";
@@ -267,12 +275,61 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
     }
   };
 
+  // The narrowing runs on the server for up to about thirty-five seconds: it waits for Jellyseerr to
+  // add the series to Sonarr, then for the download queue to settle before deciding what to clean
+  // up. These refetches cover that window; the last one is past the server's own deadline so the
+  // panel always ends up showing a finished state rather than a spinner.
+  // The server sweeps the download queue for about fifty seconds after the request, because grabs
+  // from Jellyseerr's search keep arriving for that long. The last poll sits past its deadline so
+  // the panel always settles on a finished state rather than a spinner.
+  const NARROW_POLLS_MS = [4000, 12000, 24000, 36000, 48000, 58000, 70000];
+
+  const pollNarrowing = () => {
+    for (const delay of NARROW_POLLS_MS) {
+      narrowTimers.push(setTimeout(() => props.onRequested(), delay));
+    }
+  };
+
+  // Picking in the panel is the confirmation, so these apply directly.
+  const narrowSeason = async (anilistId: number, seasonNumber?: number, mode: NarrowMode = "exclusive") => {
+    setBusy(true);
+    try {
+      const result = await narrowToCour(anilistId, { seasonNumber, mode, confirm: true });
+      setOutcomes(prev => ({
+        ...prev,
+        [props.id]: {
+          ok: true,
+          message: result.applied
+            ? mode === "whole"
+              ? `Sonarr is monitoring every season and searching what has aired.`
+              : `Sonarr ${mode === "add" ? "also monitoring" : "narrowed to"} ${result.episodes.label} (${result.episodes.count} episode${result.episodes.count === 1 ? "" : "s"}).`
+            : `Could not narrow Sonarr: ${result.reason}.`
+        }
+      }));
+      props.onRequested();
+    } catch (err) {
+      setOutcomes(prev => ({
+        ...prev,
+        [props.id]: { ok: false, message: err instanceof Error ? err.message : String(err) }
+      }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const submit = async (tmdbId: number, mediaType: string, selection: Selection, forceAnime: boolean) => {
     setBusy(true);
     try {
       const payload =
         mediaType === "tv"
-          ? { tmdbId, mediaType, seasons: selection === "all" ? ("all" as const) : selection, forceAnime }
+          ? {
+              tmdbId,
+              mediaType,
+              seasons: selection === "all" ? ("all" as const) : selection,
+              forceAnime,
+              anilistId: props.id,
+              whole: wantsWhole()[props.id] === true
+            }
           : { tmdbId, mediaType };
       const created = await postRequest(payload);
 
@@ -289,7 +346,13 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
           ok: true,
           message: created.forcedAnime
             ? `Requested in Jellyseerr (#${created.requestId}), forced to ${created.forcedAnime.rootFolder} with the anime profile.`
-            : `Requested in Jellyseerr (request #${created.requestId}).`
+            : `Requested in Jellyseerr (request #${created.requestId}).${
+                created.narrowing?.started
+                  ? created.narrowing.whole
+                    ? " Setting Sonarr to monitor every season now."
+                    : " Narrowing Sonarr to this cour now, which takes about a minute."
+                  : ""
+              }`
         }
       }));
 
@@ -297,6 +360,10 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
       // Jellyseerr updates mediaInfo a beat after the POST returns. Tracked so closing the panel
       // cancels it rather than leaving a timer pointed at an unmounted component's callback.
       followUp = setTimeout(() => props.onRequested(), 2500);
+
+      // Narrowing waits for Sonarr to add the series and then for the download queue to settle, so
+      // its result lands long after the request response. Poll until it does.
+      if (created.narrowing?.started) pollNarrowing();
     } catch (err) {
       setOutcomes(prev => ({
         ...prev,
@@ -345,6 +412,8 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
     return () => {
       document.removeEventListener("keydown", onKeyDown);
       if (followUp) clearTimeout(followUp);
+      for (const timer of narrowTimers) clearTimeout(timer);
+      narrowTimers = [];
       opener?.focus?.();
     };
   });
@@ -1180,6 +1249,65 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                                 </For>
                               </div>
                             </>
+                          </Show>
+
+                          {/* TMDB folds several of Sonarr's seasons into one for a lot of anime, so
+                              the checkboxes above cannot express which cour is wanted. Say so
+                              before the request rather than after the wrong season downloads. */}
+                          <Show when={anime().cours?.lumped}>
+                            <>
+                              <LumpedNotice cours={anime().cours!} />
+                              {/* Asked before the request rather than fixed afterwards: narrowing to
+                                  one cour is right most of the time, but it actively undoes a request
+                                  for a whole series, so it cannot be the only option. */}
+                              <div class="season-list">
+                                <label class={["season", { picked: wantsWhole()[props.id] !== true }]}>
+                                  <input
+                                    type="radio"
+                                    checked={wantsWhole()[props.id] !== true}
+                                    onChange={() => setWantsWhole(prev => ({ ...prev, [props.id]: false }))}
+                                  />
+                                  <span class="season-name">Just this cour</span>
+                                  <span class="season-meta">
+                                    {anime().cours?.target
+                                      ? `season ${anime().cours!.target!.seasonNumber} in Sonarr`
+                                      : "worked out after the series is added"}
+                                  </span>
+                                </label>
+                                <label class={["season", { picked: wantsWhole()[props.id] === true }]}>
+                                  <input
+                                    type="radio"
+                                    checked={wantsWhole()[props.id] === true}
+                                    onChange={() => setWantsWhole(prev => ({ ...prev, [props.id]: true }))}
+                                  />
+                                  <span class="season-name">The whole series</span>
+                                  <span class="season-meta">every season, no narrowing</span>
+                                </label>
+                              </div>
+                            </>
+                          </Show>
+
+                          {/* The narrowing runs after the request and takes about half a minute, so
+                              its state has to be visible or the panel looks like it did nothing. */}
+                          {/* Jellyseerr is a dead end once it holds a request for a lumped show, so
+                              act on Sonarr instead of showing a locked checkbox. */}
+                          <Show when={anime().cours?.lumped && anime().cours?.inSonarr}>
+                            <CourActions
+                              cours={anime().cours!}
+                              seasonNumber={anime().cours?.target?.seasonNumber ?? null}
+                              busy={busy()}
+                              onApply={(mode, seasonNumber) => narrowSeason(props.id, seasonNumber, mode)}
+                            />
+                          </Show>
+
+                          <Show when={anime().cours?.narrowing}>
+                            {narrowing => (
+                              <NarrowNotice
+                                narrowing={narrowing()}
+                                busy={busy()}
+                                onPick={season => narrowSeason(props.id, season)}
+                              />
+                            )}
                           </Show>
 
                           <Show when={anime().routing}>

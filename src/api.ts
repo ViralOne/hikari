@@ -82,7 +82,7 @@ export type Anime = {
   startDate: { year: number | null; month: number | null; day: number | null };
   nextEpisode: { episode: number; airingAt: number; timeUntil: number } | null;
   studio: string | null;
-  prequelCount: number;
+  directPrequels: number;
   siteUrl: string;
   library?: LibraryMatch | null;
   movie?: LibraryMatch | null;
@@ -179,10 +179,92 @@ export type Routing = {
   animeTagsConfigured: boolean;
 };
 
+// What Sonarr was narrowed to, and why it had to be. TMDB folds several of Sonarr's seasons into
+// one for a lot of anime, so a Jellyseerr season number cannot say which cour was meant.
+export type CourSeason = {
+  seasonNumber: number;
+  episodeCount: number;
+  firstAirDate: string | null;
+  onDisk: number;
+  monitored: number;
+};
+
+export type NarrowMode = "exclusive" | "add" | "whole";
+
+export type NarrowResult =
+  | {
+      applied: true;
+      seriesId: number;
+      seriesTitle: string;
+      seasonNumber: number;
+      via: "air-date" | "chain-ordinal" | "chosen";
+      confidence: number;
+      episodes: { count: number; first: number; last: number; label: string };
+      clamped: boolean;
+      wholeSeason: boolean;
+      unmonitoredSeasons: number[];
+      keptSeasons: number[];
+      unmonitoredEpisodes: number;
+      seriesType: { changed: boolean; previous?: string; error?: string };
+      /** Jellyseerr searches that were actually stopped. Sonarr refuses to cancel a started one. */
+      cancelledSearches: string[];
+      /** Searches Sonarr would not cancel. Harmless once the episodes are unmonitored. */
+      searchesStillRunning: string[];
+      removedFromQueue: Array<{ season: number; episode: number | null; title: string }>;
+      search: { commandId: number | null; error?: string };
+    }
+  | {
+      applied: false;
+      reason: string;
+      seriesId?: number;
+      seriesTitle?: string;
+      seasons?: CourSeason[];
+      /** Present when reason is "not-confirmed": what the write would do, having written nothing. */
+      plan?: NarrowPlan;
+    };
+
+export type NarrowPlan = {
+  seriesId: number;
+  seriesTitle: string;
+  seasonNumber: number;
+  via: string;
+  confidence: number;
+  episodes: { count: number; first: number; last: number; label: string };
+  clamped: boolean;
+  wholeSeason: boolean;
+  keptSeasons: number[];
+  unmonitoredSeasons: number[];
+  unmonitoredEpisodes: number;
+  searchable: number;
+  removedFromQueue: Array<{ season: number; episode: number | null; title: string }>;
+};
+
+export type Cours = {
+  lumped?: boolean;
+  // seasons-folded: TMDB reports fewer seasons than Sonarr has.
+  // cour-within-season: the counts agree, but this AniList entry is only part of a Sonarr season.
+  kind?: "seasons-folded" | "cour-within-season";
+  tmdbSeasons?: number;
+  sonarrSeasons?: number | null;
+  prequelDepth?: number | null;
+  inSonarr?: boolean;
+  target?: { seasonNumber: number; via: string; episodeCount: number; wholeSeason: boolean } | null;
+  seasons?: CourSeason[] | null;
+  narrowing?: {
+    state: "running" | "done" | "failed";
+    at: number;
+    result?: NarrowResult;
+    error?: string;
+    /** Background queue sweep: Jellyseerr's search can grab minutes after the narrowing finished. */
+    guard?: "watching" | "settled" | "timed-out" | "failed" | null;
+  } | null;
+};
+
 export type AnimeDetail = Anime & {
   library: LibraryMatch | null;
   request: RequestMatch | null;
   routing: Routing | null;
+  cours: Cours | null;
   watch: Watch | null;
   list: ListEntry | null;
   shoko: ShokoInfo | null;
@@ -383,12 +465,15 @@ export function postRequest(payload: {
   mediaType: string;
   seasons?: number[] | "all";
   forceAnime?: boolean;
+  anilistId?: number;
+  whole?: boolean;
 }) {
   return json<{
     ok: true;
     requestId: number;
     status: number;
     forcedAnime: { profileId: number; rootFolder: string } | null;
+    narrowing: { started: boolean; whole?: boolean } | null;
   }>("/api/request", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -516,6 +601,22 @@ export function searchMissingEpisodes(anilistId: number, confirm = false) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ confirm })
+  });
+}
+
+// Narrow Sonarr to the episodes one AniList entry covers. Without a season the server resolves the
+// cour from air dates; with one, the choice is taken as given.
+//
+// Two steps, like searchMissingEpisodes: nothing is written unless confirm is true, and the first
+// call returns the plan. This unmonitors episodes and removes downloads, so it is worth a look.
+export function narrowToCour(
+  anilistId: number,
+  { seasonNumber, mode = "exclusive", confirm = false }: { seasonNumber?: number; mode?: NarrowMode; confirm?: boolean } = {}
+) {
+  return json<{ ok: true } & NarrowResult>(`/api/sonarr/narrow/${anilistId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...(seasonNumber === undefined ? {} : { seasonNumber }), mode, confirm })
   });
 }
 

@@ -19,6 +19,7 @@ import * as shoko from "./shoko.js";
 import * as anilistList from "./anilist-list.js";
 import * as sequels from "./sequels.js";
 import * as autolink from "./autolink.js";
+import * as reconcile from "./reconcile.js";
 import * as settings from "./settings.js";
 import * as auth from "./auth.js";
 import { withinADay } from "./dates.js";
@@ -427,12 +428,22 @@ app.get("/api/anime/:id", async c => {
   // download that had already happened. Everything it needs is cached by this point.
   const report = shokoInfo && files?.missing?.length ? await missingReport(id).catch(() => null) : null;
 
-  const [routing, watch] = await Promise.all([
+  const [routing, watch, inspection] = await Promise.all([
     describeRouting(request).catch(() => null),
-    jellyfin.progressFor(anime, library, shokoInfo).catch(() => null)
+    jellyfin.progressFor(anime, library, shokoInfo).catch(() => null),
+    // Whether TMDB has folded several of Sonarr's seasons into one, which is what makes a plain
+    // Jellyseerr season request unable to express the cour that was asked for.
+    request?.matched && request.mediaType === "tv"
+      ? reconcile.inspect({ anime, tmdbSeasons: request.seasons, library }).catch(() => null)
+      : Promise.resolve(null)
   ]);
 
   const episodes = watch ? await jellyfin.episodeProgress(watch.ids).catch(() => null) : null;
+
+  // `narrowing` is the detached post-request correction, which finishes long after the request
+  // response. Reported here because the panel already refetches this route to follow it.
+  const narrowing = reconcile.statusFor(id);
+  const cours = inspection || narrowing ? { ...(inspection || {}), narrowing } : null;
 
   return c.json({
     ...anime,
@@ -442,6 +453,7 @@ app.get("/api/anime/:id", async c => {
     list: listEntry,
     request,
     routing,
+    cours,
     watch: watch ? { ...watch, episodes } : null,
     links: seerr.links(anime, request)
   });
@@ -518,12 +530,41 @@ app.post("/api/request", async c => {
   }
 
   const created = await seerr.createRequest({ tmdbId, mediaType, seasons, overrides });
+
+  // TMDB folds several of Sonarr's seasons into one for a lot of anime, so the season number just
+  // sent cannot say which cour was meant. Correct Sonarr once Jellyseerr has added the series.
+  // Detached: it waits on Sonarr and on the download queue, which takes far longer than a request
+  // should. The result is reported through the detail route.
+  let narrowing = null;
+  if (mediaType === "tv" && body.anilistId && enabled.sonarr) {
+    const anime = await anilist.byId(Number(body.anilistId)).catch(() => null);
+    const detail = await seerr.tvDetail(tmdbId).catch(() => null);
+
+    // The library match matters: without Sonarr's episodes, inspect can only see seasons TMDB has
+    // folded together and misses the opposite case entirely -- AniList splitting a cour that Sonarr
+    // keeps whole, like Slime's second season. That case has no season-count discrepancy to spot,
+    // only a cour that covers half a Sonarr season.
+    const library = anime ? await sonarr.findMatch(anime, null).catch(() => null) : null;
+    const inspection = anime
+      ? await reconcile.inspect({ anime, tmdbSeasons: detail?.seasons, library }).catch(() => null)
+      : null;
+
+    // `whole` is the user saying the cour logic does not apply: they want the series. Jellyseerr
+    // still only monitors the one TMDB season it was given, so this needs correcting too -- in the
+    // opposite direction, by monitoring everything.
+    if (anime && (inspection?.lumped || body.whole === true)) {
+      reconcile.startNarrowing({ anime, tmdbId, whole: body.whole === true });
+      narrowing = { started: true, whole: body.whole === true };
+    }
+  }
+
   return c.json({
     ok: true,
     requestId: created.id,
     status: created.status,
     media: created.media?.status ?? null,
-    forcedAnime: forced
+    forcedAnime: forced,
+    narrowing
   });
 });
 
@@ -570,6 +611,72 @@ app.post("/api/sonarr/series/:id/series-type", async c => {
 
   const result = await sonarr.setSeriesType(Number(c.req.param("id")), seriesType);
   return c.json({ ok: true, ...result });
+});
+
+// Narrow Sonarr to the episodes one AniList entry actually covers. Runs automatically after a
+// request for a show whose TMDB seasons are lumped; this route is how a season picked by hand gets
+// applied, and how a narrowing that could not decide gets retried.
+//
+// Season is optional: without it the cour is resolved from air dates, which is what the automatic
+// path does. With it, the choice is taken as given.
+app.post("/api/sonarr/narrow/:anilistId", async c => {
+  const anilistId = Number(c.req.param("anilistId"));
+  if (!Number.isInteger(anilistId) || anilistId <= 0) {
+    return c.json({ error: "anilistId must be a positive integer" }, 400);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const seasonNumber = body.seasonNumber === undefined || body.seasonNumber === null ? null : Number(body.seasonNumber);
+
+  if (seasonNumber !== null && (!Number.isInteger(seasonNumber) || seasonNumber < 1)) {
+    return c.json({ error: "seasonNumber must be a positive integer" }, 400);
+  }
+
+  const mode = body.mode || "exclusive";
+  if (!["exclusive", "add", "whole"].includes(mode)) {
+    return c.json({ error: "mode must be exclusive, add or whole" }, 400);
+  }
+
+  const anime = await anilist.byId(anilistId);
+  if (!anime) return c.json({ error: "not found" }, 404);
+
+  const shokoInfo = await shoko.infoFor(anime).catch(() => null);
+  const library = await sonarr.findMatch(anime, shokoInfo).catch(() => null);
+
+  if (!library) {
+    return c.json(
+      {
+        error:
+          "Sonarr has no series for this title yet, so there is nothing to narrow. Request it first, or add it in Sonarr.",
+        service: "sonarr"
+      },
+      409
+    );
+  }
+
+  // Two steps, the same as POST /api/sonarr/missing/:anilistId: without confirm nothing is written
+  // and the response is the plan. This route unmonitors episodes and deletes downloads, so it is
+  // worth being able to read what it intends first.
+  const result =
+    mode === "whole"
+      ? await reconcile.monitorWholeSeries({ anime, series: library, apply: body.confirm === true })
+      : await reconcile.narrowSeries({
+          anime,
+          series: library,
+          seasonNumber,
+          mode,
+          apply: body.confirm === true
+        });
+
+  // Jellyseerr's search can still be running when a cour is narrowed by hand, so keep sweeping in
+  // the background here as well rather than only on the automatic path.
+  const { guardWith, ...response } = result;
+  if (result.applied && guardWith) reconcile.watchQueue(anilistId, guardWith);
+
+  // not-confirmed is a plan, not a failure, so it answers 200.
+  if (response.reason === "not-confirmed") return c.json({ ok: true, ...response });
+  if (!response.applied) return c.json({ ok: false, ...response }, 409);
+  return c.json({ ok: true, ...response });
 });
 
 // Episodes AniDB says have aired but that are not on disk. AniDB numbers a split cour from 1

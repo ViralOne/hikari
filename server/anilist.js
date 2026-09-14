@@ -210,15 +210,86 @@ function shape(media) {
         }
       : null,
     studio: media.studios?.nodes?.[0]?.name || null,
-    prequelCount: countPrequels(media.relations),
+    directPrequels: countPrequels(media.relations),
     siteUrl: media.siteUrl
   };
 }
 
+// How many entries hang off this one directly. Note this is one hop, not the length of the chain:
+// The Apothecary Diaries 3rd Season has exactly one PREQUEL edge even though two seasons precede
+// it. Use prequelDepth when the answer has to be an ordinal.
 function countPrequels(relations) {
   let count = 0;
   for (const edge of relations?.edges || []) {
     if (edge.relationType === "PREQUEL" && edge.node?.format !== "MOVIE") count += 1;
   }
   return count;
+}
+
+// Broadcast continuations only. A movie, an OVA or a side story is not a season, so following one
+// would inflate the ordinal and point at the wrong Sonarr season.
+const CHAIN_FORMATS = new Set(["TV", "TV_SHORT"]);
+
+// Walking the chain costs one query per hop, so refuse to walk forever if AniList ever hands back
+// a cycle. Nothing legitimate comes close: the longest broadcast chains are single digits.
+const MAX_CHAIN_HOPS = 8;
+
+const CHAIN_QUERY = `
+  query ($id: Int) {
+    Media(id: $id, type: ANIME) {
+      id
+      relations {
+        edges {
+          relationType
+          node { id format startDate { year month day } }
+        }
+      }
+    }
+  }
+`;
+
+// How many broadcast seasons precede this one. This is the ordinal the Sonarr season number is
+// derived from when air dates cannot decide, so "third season" has to come back as 2 and not as
+// the 1 that counting direct edges gives.
+//
+// Cached for a day: relations only change when AniList adds a sequel announcement.
+export function prequelDepth(anilistId) {
+  const id = Number(anilistId);
+  if (!Number.isInteger(id) || id <= 0) return Promise.resolve(0);
+  return cached(`anilist:prequel-depth:${id}`, 24 * 60 * 60 * 1000, () => walkPrequels(id));
+}
+
+async function walkPrequels(startId) {
+  const seen = new Set([startId]);
+  let current = startId;
+  let depth = 0;
+
+  for (let hop = 0; hop < MAX_CHAIN_HOPS; hop += 1) {
+    let data;
+    try {
+      data = await gql(CHAIN_QUERY, { id: current });
+    } catch {
+      // A failed hop means the depth is unknown, not zero. Returning what has been counted so far
+      // would be a confident wrong answer, and the caller treats null as "ask the user".
+      return null;
+    }
+
+    const prequels = (data?.Media?.relations?.edges || [])
+      .filter(edge => edge.relationType === "PREQUEL" && CHAIN_FORMATS.has(edge.node?.format))
+      .map(edge => edge.node)
+      .filter(node => node?.id && !seen.has(node.id));
+
+    if (prequels.length === 0) return depth;
+
+    // Several prequels means a split or a reboot. The earliest one is the start of the broadcast
+    // order, which is what Sonarr's season numbering follows.
+    prequels.sort((a, b) => (a.startDate?.year ?? 9999) - (b.startDate?.year ?? 9999));
+    const next = prequels[0];
+
+    seen.add(next.id);
+    current = next.id;
+    depth += 1;
+  }
+
+  return null;
 }

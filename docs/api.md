@@ -10,9 +10,10 @@
 | `GET /api/sequels` | Sequels to what you have finished, from your AniList list. Needs `ANILIST_TOKEN` |
 | `GET /api/schedule?days=7` | Airing schedule, 1 to 14 days |
 | `GET /api/search?q=&season=&year=&format=&genre=` | AniList search |
-| `GET /api/anime/:anilistId` | Full detail: library match, watch progress, season list, request state |
-| `POST /api/request` | `{ tmdbId, mediaType, seasons, forceAnime }`. Returns 409 if nothing is left to request |
+| `GET /api/anime/:anilistId` | Full detail: library match, watch progress, season list, request state, and `cours` when TMDB's seasons do not line up with Sonarr's |
+| `POST /api/request` | `{ tmdbId, mediaType, seasons, forceAnime, anilistId, whole }`. Returns 409 if nothing is left to request. With `anilistId`, narrows Sonarr to the requested cour afterwards when the seasons are lumped; `whole: true` monitors every season instead |
 | `POST /api/sonarr/series/:id/series-type` | Corrects Sonarr's series type |
+| `POST /api/sonarr/narrow/:anilistId` | Sets which cours Sonarr fetches. Only writes when the body is `{"confirm":true}`; otherwise returns the plan. `mode` is `exclusive` (this cour only, the default), `add` (this cour as well) or `whole` (every season). `{ seasonNumber }` forces a season, without it the cour is resolved from air dates. 409 when it cannot be worked out, with Sonarr's season list to pick from |
 | `POST /api/sonarr/missing/:anilistId` | Plans a search for aired episodes that are not on disk. Only searches when the body is `{"confirm":true}` |
 | `POST /api/list/:anilistId` | `{ status, progress, score }`. Requires `ANILIST_ALLOW_WRITES=true` |
 | `POST /api/shoko/rescan/:anilistId/:fileId` | Asks AniDB about an unmatched file again |
