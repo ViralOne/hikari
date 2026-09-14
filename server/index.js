@@ -21,8 +21,69 @@ import * as settings from "./settings.js";
 import * as auth from "./auth.js";
 import { withinADay } from "./dates.js";
 import { request } from "./http.js";
+import { hit as rateHit } from "./ratelimit.js";
 
 const app = new Hono();
+
+// The socket address is the reverse proxy when there is one, so the forwarded header is only
+// believed if you say there is a proxy in front. Otherwise anyone could spoof it and walk around
+// the per-address limits.
+const clientAddress = c => {
+  if (config.trustProxy) {
+    const forwarded = c.req.header("x-forwarded-for")?.split(",")[0].trim();
+    if (forwarded) return forwarded;
+  }
+  return c.env?.incoming?.socket?.remoteAddress || "unknown";
+};
+
+// Headers that cost nothing and remove whole categories of problem: no sniffing, no framing, no
+// referrer leaking the address of a private instance, and a policy tight enough that an injected
+// script has nowhere to send anything.
+app.use("*", async (c, next) => {
+  await next();
+  c.header("X-Content-Type-Options", "nosniff");
+  c.header("Referrer-Policy", "no-referrer");
+  c.header("X-Frame-Options", "DENY");
+  c.header("Cross-Origin-Opener-Policy", "same-origin");
+  c.header("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
+  c.header(
+    "Content-Security-Policy",
+    [
+      "default-src 'self'",
+      // AniList serves every cover and banner. data: covers the inline SVG icons.
+      "img-src 'self' data: https://s4.anilist.co https://img.anili.st",
+      // Vite injects the stylesheet and the app sets style attributes.
+      "style-src 'self' 'unsafe-inline'",
+      "font-src 'self' data:",
+      "script-src 'self'",
+      "connect-src 'self'",
+      "form-action 'self'",
+      "base-uri 'none'",
+      "object-src 'none'",
+      "frame-ancestors 'none'"
+    ].join("; ")
+  );
+});
+
+// A blunt ceiling per address. High enough that the UI polling health every 60s and opening
+// panels never notices, low enough that scraping or a guessing loop hits a wall.
+app.use("/api/*", async (c, next) => {
+  const check = rateHit(`api:${clientAddress(c)}`, { max: config.rateLimit, windowMs: 60 * 1000 });
+  if (!check.allowed) {
+    c.header("Retry-After", String(check.retryIn));
+    return c.json({ error: `too many requests, try again in ${check.retryIn}s` }, 429);
+  }
+  return next();
+});
+
+// Nothing this API accepts is large, and an unbounded body is free memory for anyone who asks.
+app.use("/api/*", async (c, next) => {
+  const length = Number(c.req.header("content-length") || 0);
+  if (Number.isFinite(length) && length > 64 * 1024) {
+    return c.json({ error: "request body too large" }, 413);
+  }
+  return next();
+});
 
 // Hono's c.req.json() parses the body regardless of Content-Type, so a cross-origin
 // <form enctype="text/plain"> is a simple request that would reach the mutating routes.
@@ -617,7 +678,7 @@ app.post("/api/auth/login", async c => {
     password: body.password,
     // Behind a reverse proxy the socket address is the proxy, so prefer the forwarded one for
     // the per-address throttle.
-    address: c.req.header("x-forwarded-for")?.split(",")[0].trim() || c.env?.incoming?.socket?.remoteAddress
+    address: clientAddress(c)
   });
 
   c.header("Set-Cookie", auth.cookieHeader(result.token, { secure: isHttps(c) }));

@@ -7,6 +7,14 @@ to, like the rest of a typical self-hosted stack.
 
 What is already in place:
 
+- Every response carries `Content-Security-Policy` (`default-src 'self'`, no framing, no inline
+  scripts, images only from AniList), `X-Content-Type-Options: nosniff`, `Referrer-Policy:
+  no-referrer` and `X-Frame-Options: DENY`.
+- The API is rate limited per address, 600 requests a minute by default (`RATE_LIMIT_PER_MINUTE`),
+  and request bodies over 64 KB are refused.
+- `X-Forwarded-For` is only believed when `TRUST_PROXY=true`, so nobody walks around the
+  per-address limits by inventing a header.
+
 - Cross-origin requests to the API are rejected, so a random page you visit cannot make Hikari
   create requests on your behalf.
 - Error responses never include the body returned by an upstream service, which would otherwise
@@ -66,9 +74,10 @@ at `/cache/hikari-auth.json` with mode 600, which is why sessions survive a rest
 
 Details worth knowing:
 
-- Failed logins are throttled: 10 attempts in 5 minutes per username and per address. A wrong
-  password and an unknown user give the same message, so the form cannot be used to discover who
-  has an account.
+- Failed logins are throttled to **five a minute**, counted per username and per address, then
+  locked out for a minute. Every further burst doubles the lockout up to an hour, so a patient
+  script is slowed to a crawl while a real typo costs you sixty seconds. A wrong password and an
+  unknown user give the same message, so the form cannot be used to discover who has an account.
 - Sessions cannot be revoked individually, because there is nothing stored to revoke. **Sign out
   everywhere** bumps a generation counter that invalidates every token issued before it.
 - `HIKARI_TOKEN` still works while login is on, so scripts and the Homepage widget keep running

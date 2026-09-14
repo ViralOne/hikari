@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname } from "node:path";
 import { config, enabled } from "./config.js";
 import { request } from "./http.js";
+import { forgive, hit, lockedFor, penalise } from "./ratelimit.js";
 
 // Login against Jellyfin, so Hikari has no accounts of its own to manage or leak. Jellyfin
 // checks the password; Hikari only ever sees whether the answer was yes.
@@ -103,37 +104,10 @@ export function verify(token) {
   return { name: claims.u, id: claims.id, admin: Boolean(claims.admin), expires: claims.exp };
 }
 
-// Brute force is the only attack a login form invites, and this one sits on a LAN where the
-// attacker may already know the usernames. Per username and per address, because either alone
-// is trivial to work around.
-const attempts = new Map();
-const WINDOW_MS = 5 * 60 * 1000;
-const MAX_ATTEMPTS = 10;
-
-function throttle(key) {
-  const now = Date.now();
-  const record = attempts.get(key);
-
-  if (!record || now - record.first > WINDOW_MS) {
-    attempts.set(key, { first: now, count: 1 });
-    return { allowed: true };
-  }
-  record.count += 1;
-  if (record.count > MAX_ATTEMPTS) {
-    return { allowed: false, retryIn: Math.ceil((record.first + WINDOW_MS - now) / 1000) };
-  }
-  return { allowed: true };
-}
-
-function clearThrottle(key) {
-  attempts.delete(key);
-}
-
-// Keeps the map from growing for every address that ever guessed wrong.
-setInterval(() => {
-  const cutoff = Date.now() - WINDOW_MS;
-  for (const [key, record] of attempts) if (record.first < cutoff) attempts.delete(key);
-}, WINDOW_MS).unref?.();
+// Brute force is the only attack a login form invites, and this one may sit on a LAN where the
+// attacker already knows the usernames. Five a minute per username and per address, then an
+// escalating lockout, because a fixed window alone just means waiting for the next one.
+const LOGIN = { max: 5, windowMs: 60 * 1000, baseMs: 60 * 1000, maxMs: 60 * 60 * 1000 };
 
 export class AuthError extends Error {
   constructor(message, status = 401) {
@@ -149,10 +123,20 @@ export async function login({ username, password, address }) {
     throw new AuthError("a username and password are required", 400);
   }
 
-  const keys = [`u:${username.toLowerCase()}`, `a:${address || "unknown"}`];
+  const keys = [`login:u:${username.toLowerCase()}`, `login:a:${address || "unknown"}`];
+
   for (const key of keys) {
-    const check = throttle(key);
-    if (!check.allowed) throw new AuthError(`too many attempts, try again in ${check.retryIn}s`, 429);
+    const locked = lockedFor(key);
+    if (locked > 0) throw new AuthError(`too many attempts, try again in ${locked}s`, 429);
+  }
+  for (const key of keys) {
+    const check = hit(key, LOGIN);
+    if (!check.allowed) {
+      // Each burst that exhausts the window doubles the penalty, so guessing gets slower the
+      // longer it goes on.
+      const wait = Math.max(...keys.map(k => penalise(k, LOGIN)));
+      throw new AuthError(`too many attempts, try again in ${wait}s`, 429);
+    }
   }
 
   let body;
@@ -193,7 +177,7 @@ export async function login({ username, password, address }) {
     throw new AuthError("only Jellyfin administrators may use Hikari", 403);
   }
 
-  for (const key of keys) clearThrottle(key);
+  for (const key of keys) forgive(key);
   return { user, token: issue(user, config.auth.sessionDays) };
 }
 

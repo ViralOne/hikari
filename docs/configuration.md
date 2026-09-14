@@ -25,6 +25,8 @@ Every variable goes in `.env`. Anything left blank disables its feature rather t
 | `AUTO_LINK_INTERVAL_MINUTES` | no | Default 60, minimum 5 |
 | `AUTO_LINK_GRACE_HOURS` | no | Default 6. How long a new file is left for AniDB first |
 | `AUTO_LINK_MAX_PER_RUN` | no | Default 20 |
+| `RATE_LIMIT_PER_MINUTE` | no | Default 600. API requests allowed per address per minute |
+| `TRUST_PROXY` | no | Default `false`. Believe `X-Forwarded-For` for client addresses |
 | `AUTH` | no | Default `false`. Require a Jellyfin login. See [Security](security.md) |
 | `AUTH_SESSION_DAYS` | no | Default 30 |
 | `AUTH_ADMINS_ONLY` | no | Default `false`. Only Jellyfin administrators may sign in |

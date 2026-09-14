@@ -57,6 +57,10 @@ export const config = {
     // Writing to your AniList list stays off unless you ask for it.
     allowWrites: /^(1|true|yes)$/i.test((process.env.ANILIST_ALLOW_WRITES || "").trim())
   },
+  // Only believe X-Forwarded-For when you have actually put a proxy in front, otherwise it is a
+  // free way around every per-address limit.
+  trustProxy: /^(1|true|yes)$/i.test((process.env.TRUST_PROXY || "").trim()),
+  rateLimit: num(process.env.RATE_LIMIT_PER_MINUTE, 600, 30, 100000),
   animeRoot: trim(process.env.ANIME_ROOT, "/data/anime"),
   // Login is checked against Jellyfin, so Hikari keeps no accounts of its own. Off by default:
   // turning it on without a reachable Jellyfin would lock the door on an empty room.
