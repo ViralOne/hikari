@@ -129,8 +129,18 @@ npm run dev      # API on 7997, Vite dev server on 5273
 Checks:
 
 ```bash
-npm run check      # typecheck
-npm run test:unit  # session, rate limit, matcher and auto-link cases, no services needed
-npm run fixtures   # builds a labelled dataset by reading your stack (read-only)
-npm test           # the above plus precision and recall floors, needs the fixtures
+npm run check             # typecheck
+npm run test:unit         # session, rate limit, matcher and auto-link cases, no services needed
+npm run test:integration  # the whole server against in-process fakes of every service, no network
+npm run fixtures          # builds a labelled dataset by reading your stack (read-only)
+npm test                  # all of the above plus precision and recall floors, needs the fixtures
+```
+
+The integration test (`scripts/test-integration.mjs`) starts a real Hikari against fake Jellyseerr,
+Sonarr, Radarr, Jellyfin, Shoko, AniList and qBittorrent servers (`scripts/lib/fakes.mjs`) and walks
+the discover, detail, request and list flows end to end, checking what reached each fake as well as
+what came back. The same fakes can be run behind the UI for manual or browser testing:
+
+```bash
+npm run build && npm run dev:fakes   # http://localhost:7998, PORT to change it
 ```

@@ -34,6 +34,10 @@ jobs:
       - name: Matcher unit tests
         run: npm run test:unit
 
+      # Real server, fake services: the routes end to end with nothing on the network.
+      - name: Integration tests against fake upstreams
+        run: npm run test:integration
+
       - name: Server starts with no services configured
         run: |
           node server/index.js &

@@ -2,7 +2,8 @@ import { config } from "./config.js";
 import { cached } from "./cache.js";
 import { request } from "./http.js";
 
-const ENDPOINT = "https://graphql.anilist.co";
+// Overridable only so the integration tests can point it at an in-process fake (scripts/lib/fakes.mjs).
+const ENDPOINT = (process.env.ANILIST_URL || "https://graphql.anilist.co").trim();
 
 const MEDIA_FIELDS = `
   id
