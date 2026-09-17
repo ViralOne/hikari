@@ -1321,7 +1321,12 @@ export function Detail(props: {
                             <dd>
                               {request().title}
                               <Show when={request().year}>{year => <> ({year()})</>}</Show> ·{" "}
-                              {request().mediaType} · {Math.round((request().confidence ?? 0) * 100)}%
+                              {request().mediaType} ·{" "}
+                              {/* An id match has no similarity score, and printing 0% for the
+                                  most reliable kind of match read as the least reliable one. */}
+                              {request().via === "id"
+                                ? "matched by id"
+                                : `${Math.round((request().confidence ?? 0) * 100)}% title match`}
                             </dd>
                           </dl>
 
@@ -1330,8 +1335,9 @@ export function Detail(props: {
                               <Show when={request().suggestedSeason}>
                                 {suggested => (
                                   <div class="suggest">
-                                    This AniList entry looks like TMDB season {suggested()} (matched on air date and
-                                    title ordinal). Change the selection if that is wrong.
+                                    {request().via === "id"
+                                      ? `This AniList entry maps to TMDB season ${suggested()}. Change the selection if that is wrong.`
+                                      : `This AniList entry looks like TMDB season ${suggested()} (matched on air date and title ordinal). Change the selection if that is wrong.`}
                                   </div>
                                 )}
                               </Show>

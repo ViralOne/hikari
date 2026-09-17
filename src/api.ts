@@ -25,7 +25,10 @@ export type SeasonInfo = {
 export type RequestMatch = {
   matched: boolean;
   error?: string;
-  confidence?: number;
+  /** "id" when an AniList -> TMDB mapping decided it, "title" when it was matched by name. */
+  via?: "id" | "title";
+  /** Title similarity, and null for an id match, where there is no similarity to report. */
+  confidence?: number | null;
   tmdbId?: number;
   mediaType?: "tv" | "movie";
   title?: string;

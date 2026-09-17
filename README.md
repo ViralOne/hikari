@@ -24,6 +24,7 @@
 - An airing schedule for the next 3, 7 or 14 days, filterable to just the shows you follow
 - **The story so far**: the seasons before and after the one you opened, each badged from your library, one tap apart
 - Watch progress from Jellyfin: episodes watched, what is up next, and how many have aired but are not downloaded
+- Requests through Jellyseerr matched by **AniList id, not by title**, so a live-action remake sharing the name cannot be requested by mistake and an arc lands on the right season of the right series
 - Requests through Jellyseerr with the correct season worked out for you, and duplicates made impossible
 - Anime quality profile and root folder applied explicitly, because TMDB's anime keyword is missing on plenty of anime
 - Detects a series Sonarr added as `standard` and fixes it to `anime` in one click

@@ -22,6 +22,7 @@ import * as planning from "./planning.js";
 import * as autolink from "./autolink.js";
 import * as warm from "./warm.js";
 import * as hidden from "./hidden.js";
+import * as mapping from "./mapping.js";
 import * as scrobble from "./scrobble.js";
 import * as reconcile from "./reconcile.js";
 import * as settings from "./settings.js";
@@ -1481,6 +1482,7 @@ async function describeRouting(request) {
 const settingsFile = settings.load();
 const authFile = auth.load();
 const hiddenFile = hidden.load();
+const mappingFile = mapping.load();
 
 const restored = loadSnapshot();
 
@@ -1513,6 +1515,7 @@ serve({ fetch: app.fetch, port: config.port, hostname: config.host }, info => {
   const snapshot = cacheStats().snapshot;
   if (snapshot) console.log(`[hikari]   cache snapshot ${snapshot} (${restored} entries restored)`);
   if (hiddenFile.count > 0) console.log(`[hikari]   ${hiddenFile.count} hidden title${hiddenFile.count === 1 ? "" : "s"} (${hiddenFile.path})`);
+  if (mappingFile.entries > 0) console.log(`[hikari]   anime id mapping ${mappingFile.entries} entries (${mappingFile.path})`);
   if (settingsFile.loaded) {
     console.log(`[hikari]   settings ${settingsFile.path} (${settingsFile.fields} overrides)`);
   } else if (!settings.isConfigured()) {
@@ -1527,4 +1530,11 @@ serve({ fetch: app.fetch, port: config.port, hostname: config.host }, info => {
   }
   autolink.start();
   warm.start(buildDiscover);
+
+  // Detached, and only where it is read. refresh() resolves rather than throws, and the request
+  // matcher falls back to titles for as long as this has not landed, so nothing waits on it.
+  if (enabled.jellyseerr) {
+    mapping.refresh();
+    setInterval(() => mapping.refresh(), 24 * 60 * 60 * 1000).unref();
+  }
 });

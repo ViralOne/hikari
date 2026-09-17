@@ -123,6 +123,13 @@ try {
     JSON.stringify(detail.request && { matched: detail.request.matched, tmdbId: detail.request.tmdbId, status: detail.request.status })
   );
   check("the season is offered", detail.request?.seasons?.[0]?.taken === false && detail.request?.suggestedSeason === 1);
+  // By id, not by name. A title search finds this one either way, so without asserting `via` the
+  // whole mapping path could stop loading and every test here would still pass.
+  check(
+    "it was matched from the id mapping rather than the title",
+    detail.request?.via === "id" && detail.request?.confidence === null,
+    JSON.stringify({ via: detail.request?.via, confidence: detail.request?.confidence })
+  );
   check(
     "links point at the Jellyseerr media page",
     typeof detail.links?.media === "string" && detail.links.media.endsWith("/tv/60001"),

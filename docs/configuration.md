@@ -36,6 +36,8 @@ Every variable goes in `.env`. Anything left blank disables its feature rather t
 | `SETTINGS_FILE` | no | Where settings saved in the app are written. Default `/cache/hikari-settings.json` |
 | `HIDDEN_FILE` | no | Where "not interested" titles are kept. Default `/cache/hikari-hidden.json` |
 | `CACHE_FILE` | no | Path for the cache snapshot, so a restart does not re-fetch AniList |
+| `ANIME_MAPPING_FILE` | no | Where the AniList to TMDB id mapping is cached. Default `/cache/hikari-anime-mapping.json` |
+| `ANIME_MAPPING_URL` | no | Where to download that mapping from. Defaults to Fribb/anime-lists on GitHub; point it at a mirror to avoid the egress. Requests fall back to title matching if it cannot be fetched |
 | `CACHE_WARM` | no | Default on. Builds the Discover page on boot and, while the deck has been opened in the last 12 hours, refreshes the entries behind it shortly before they expire. `0` to stay idle until asked |
 | `HIKARI_TOKEN` | no | Shared secret required on the routes that change things. Generate one under Settings instead, once the login is on. See [Security](security.md) |
 | `HOST` | no | Bind address. Default `0.0.0.0`; use `127.0.0.1` for local-only |

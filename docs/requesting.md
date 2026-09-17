@@ -5,10 +5,30 @@
 Anime is awkward because AniList, TMDB and Sonarr all disagree about what a "season" is. Hikari is
 deliberately cautious about it.
 
+**Finding the series.** Matched by id where possible. Hikari downloads
+[Fribb/anime-lists](https://github.com/Fribb/anime-lists) on start and refreshes it weekly, which
+maps an AniList id straight to a TMDB id, media type and season number. Titles are a poor key and no
+amount of tuning fixes that: TMDB carries live-action remakes under the identical name (searching
+"Link Click" finds the 2026 Japanese remake before the donghua it was adapted from), files a
+franchise under its base title while AniList names the arc ("Bleach" against "BLEACH: Thousand-Year
+Blood War - The Calamity"), and occasionally carries a placeholder entry that outranks the real one.
+
+The download is optional and nothing waits on it. When there is no mapping for an entry — mostly
+OVAs, shorts and specials TMDB does not carry at all — Hikari falls back to matching by title, and
+the request box says which of the two decided it. One exception is deliberate: the list descends from
+AniDB's cross-reference data, which files a film under its parent series rather than giving it an
+entry of its own, so for an AniList entry that is a film pointed at a TMDB series the title match is
+used instead. Without that, "Dragon Ball Super: Broly" resolves to the Dragon Ball Super series and
+"The End of Evangelion" to the Evangelion series.
+
 **Season mapping.** AniList treats each cour as its own entry; TMDB usually groups them under one
-show. Hikari guesses the matching TMDB season from an explicit ordinal in the title, then from the
-air date, then from how long the prequel chain is. The guess is shown to you, and if it cannot work
-it out it selects nothing and asks you to pick rather than requesting the wrong season.
+show. Where the mapping names a TMDB season, that is used, but only if TMDB really has it — the list
+sometimes names a season of a show TMDB files as one flat run. Otherwise Hikari guesses: from a
+shared premiere date first, then an explicit ordinal in the title, then a looser air-date match, then
+how long the prequel chain is. Air date leads because TMDB numbers side stories into the main run,
+which offsets everything after them — "Link Click: Bridon Arc" is TMDB season 3, so AniList's
+Season 3 is TMDB season 4. The guess is shown to you, and if it cannot work it out it selects nothing
+and asks you to pick rather than requesting the wrong season.
 
 **When a season number cannot say what you mean.** Sometimes the mapping is not merely hard, it is
 impossible, because the three sources disagree about how many seasons exist. Both directions happen:

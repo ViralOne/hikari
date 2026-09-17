@@ -1,4 +1,4 @@
-import { DETAIL_TTL_MS, STATUS, takenSeasons } from "../server/jellyseerr.js";
+import { DETAIL_TTL_MS, STATUS, takenSeasons, encodeQuery } from "../server/jellyseerr.js";
 
 // Regression test for "already requested" state.
 //
@@ -66,6 +66,23 @@ check(
   DETAIL_TTL_MS <= 60 * 1000,
   `${DETAIL_TTL_MS / 1000}s`
 );
+
+console.log("\nsearch query encoding");
+
+// Jellyseerr answers 400 "Parameter 'query' must be url encoded" for the five characters
+// encodeURIComponent leaves alone. 274 of 1477 titles on a real AniList list carry one, and
+// resolve() swallowed the error, so those entries silently never matched anything.
+check(
+  "the characters encodeURIComponent skips are escaped",
+  encodeQuery("!'()*") === "%21%27%28%29%2A",
+  encodeQuery("!'()*")
+);
+check(
+  "a real title round-trips to something Jellyseerr accepts",
+  !/[!'()*]/.test(encodeQuery("Fruits Basket (2019)")) && decodeURIComponent(encodeQuery("Fruits Basket (2019)")) === "Fruits Basket (2019)",
+  encodeQuery("Fruits Basket (2019)")
+);
+check("ordinary titles are untouched", encodeQuery("Dan Da Dan") === "Dan%20Da%20Dan", encodeQuery("Dan Da Dan"));
 
 console.log(`\n${failures === 0 ? "all request-state cases passed" : `${failures} request-state case(s) failed`}`);
 process.exit(failures === 0 ? 0 : 1);

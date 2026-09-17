@@ -45,6 +45,8 @@ export async function startHikari({ env = {}, fakes, echo = false } = {}) {
       HIDDEN_FILE: join(dir, "hidden.json"),
       SETTINGS_FILE: join(dir, "settings.json"),
       CACHE_FILE: join(dir, "cache.json"),
+      ANIME_MAPPING_FILE: join(dir, "anime-mapping.json"),
+      ANIME_MAPPING_URL: fakes.urls.animeLists,
 
       JELLYSEERR_URL: fakes.urls.jellyseerr,
       JELLYSEERR_API_KEY: "fake-jellyseerr-key",

@@ -706,8 +706,22 @@ export async function startFakes({ scenario } = {}) {
     return undefined;
   });
 
+  // ---------------------------------------------------------------------------------------------
+  // The AniList -> TMDB id list. Real shapes, two rows: themoviedb_id.tv is a bare number and the
+  // TMDB season lives under season.tmdb. Pointed at by ANIME_MAPPING_URL so the tests never reach
+  // GitHub for 7 MB, and so the id path is exercised rather than skipped.
+  // ---------------------------------------------------------------------------------------------
+
+  const animeLists = await serve("anime-lists", ({ path }) => {
+    if (path !== "/anime-list-full.json") return undefined;
+    return [
+      { type: "TV", anilist_id: 101, themoviedb_id: { tv: 60001 }, season: { tmdb: 1 } },
+      { type: "TV", anilist_id: 202, themoviedb_id: { tv: 60002 }, season: { tmdb: 1 } }
+    ];
+  });
+
   return {
-    urls: { jellyseerr, sonarr, radarr, jellyfin, shoko, anilist, qbit },
+    urls: { jellyseerr, sonarr, radarr, jellyfin, shoko, anilist, qbit, animeLists: `${animeLists}/anime-list-full.json` },
     calls,
     state,
     async stop() {

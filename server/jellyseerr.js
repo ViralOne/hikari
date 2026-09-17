@@ -1,6 +1,7 @@
 import { config, enabled } from "./config.js";
 import { cached, invalidate } from "./cache.js";
 import { request } from "./http.js";
+import * as mapping from "./mapping.js";
 import { pickBest, guessSeasonNumber, searchTitle } from "./match.js";
 
 export const STATUS = {
@@ -28,6 +29,15 @@ export function status() {
   return cached("seerr:status", 5 * 60 * 1000, () => api("/status"));
 }
 
+// encodeURIComponent leaves !'()* alone, which RFC 3986 calls reserved and Jellyseerr's request
+// validator rejects outright: "Parameter 'query' must be url encoded". Titles carrying one of those
+// characters are not rare -- "Bocchi the Rock!", "Fruits Basket (2019)", "Iron Wok Jan!" -- and
+// resolve() swallows the 400, so those entries simply never found a match and the request box never
+// appeared, with nothing in the log to say why.
+export function encodeQuery(value) {
+  return encodeURIComponent(value).replace(/[!'()*]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
 export function links(anime, match) {
   const base = config.jellyseerr.browserUrl;
   if (!base) return { media: null, search: null };
@@ -35,14 +45,14 @@ export function links(anime, match) {
   const query = searchTitle(anime.title.english || anime.title.romaji || anime.title.display);
   return {
     media: match?.matched ? `${base}/${match.mediaType}/${match.tmdbId}` : null,
-    search: `${base}/search?query=${encodeURIComponent(query)}`
+    search: `${base}/search?query=${encodeQuery(query)}`
   };
 }
 
 export function search(query) {
   const key = `seerr:search:${query.toLowerCase()}`;
   return cached(key, 30 * 60 * 1000, async () => {
-    const body = await api(`/search?query=${encodeURIComponent(query)}&page=1&language=en`);
+    const body = await api(`/search?query=${encodeQuery(query)}&page=1&language=en`);
     return body.results || [];
   }, { staleFor: 60 * 60 * 1000 });
 }
@@ -52,6 +62,10 @@ export function search(query) {
 // keep only the fields this module actually reads.
 function projectDetail(detail) {
   return {
+    // Name and date are needed by the id-mapped path, which never sees a search result to read
+    // them from. Both are already public on the TMDB page.
+    name: detail.name || detail.title || null,
+    releasedOn: detail.firstAirDate || detail.releaseDate || null,
     seasons: (detail.seasons || []).map(season => ({
       seasonNumber: season.seasonNumber,
       name: season.name,
@@ -146,7 +160,83 @@ export function requests(take = 30) {
   });
 }
 
+// The mapping descends from AniDB's cross-reference lists, which file a film under its parent series
+// rather than giving it an entry of its own. For anything series-shaped that is exactly what is
+// wanted; for a film it names the franchise instead, so "Dragon Ball Super: Broly" mapped to the
+// Dragon Ball Super series and "The End of Evangelion" to the Evangelion series. Across a 234-entry
+// sweep of a real list those were the only entries the title matcher did better on, and every one of
+// them was this same shape, so it is the only case handed back.
+export function trustworthy(anime, mapped) {
+  return !(anime.format === "MOVIE" && mapped.mediaType === "tv");
+}
+
+// Everything both paths need from the TMDB detail: the anime keyword, the request state, the season
+// list and which season to offer. One tvDetail call serves all of it.
+async function enrich(result, anime, preferSeason) {
+  try {
+    const detail = result.mediaType === "tv" ? await tvDetail(result.tmdbId) : await movieDetail(result.tmdbId);
+
+    result.animeKeyword = hasAnimeKeyword(detail);
+    result.status = detail.mediaInfo ? STATUS[detail.mediaInfo.status] || "none" : "none";
+    // Only the id-mapped path arrives without these; a search result already carried them.
+    result.title ??= detail.name;
+    if (result.year === null && detail.releasedOn) result.year = Number(detail.releasedOn.slice(0, 4)) || null;
+
+    if (result.mediaType !== "tv") return result;
+
+    const taken = takenSeasons(detail);
+    result.seasons = (detail.seasons || [])
+      .filter(s => s.seasonNumber > 0)
+      .map(s => {
+        const label = taken.get(s.seasonNumber);
+        return {
+          seasonNumber: s.seasonNumber,
+          name: s.name,
+          airDate: s.airDate,
+          episodeCount: s.episodeCount,
+          // `taken` is the flag clients branch on; `status` is only for display, so changing
+          // the wording cannot silently re-enable requesting.
+          taken: Boolean(label),
+          status: label || "none"
+        };
+      });
+
+    // The mapping's season number beats any guess, but it is not always a season TMDB actually has:
+    // Tokyo Majin maps to season 2 of a series TMDB files as one flat season. Use it when it exists
+    // and let the air-date guess cover the rest.
+    const mappedSeasonExists = preferSeason != null && result.seasons.some(s => s.seasonNumber === preferSeason);
+    result.suggestedSeason = mappedSeasonExists ? preferSeason : guessSeasonNumber(anime, result.seasons);
+  } catch {
+    result.animeKeyword = null;
+    if (result.mediaType === "tv") result.seasons = null;
+  }
+  return result;
+}
+
 export async function resolve(anime) {
+  // An id beats a title. Only when there is no mapping, or the one case it is known to be wrong
+  // about, does this fall through to searching by name.
+  const mapped = mapping.lookup(anime.id);
+  if (mapped && trustworthy(anime, mapped)) {
+    return enrich(
+      {
+        matched: true,
+        via: "id",
+        confidence: null,
+        tmdbId: mapped.tmdbId,
+        mediaType: mapped.mediaType,
+        title: null,
+        year: null,
+        status: "none",
+        animeKeyword: null,
+        seasons: null,
+        suggestedSeason: null
+      },
+      anime,
+      mapped.season
+    );
+  }
+
   const queries = [
     ...new Set(
       [anime.title.english, anime.title.romaji, anime.title.native]
@@ -163,7 +253,10 @@ export async function resolve(anime) {
     let results;
     try {
       results = await search(query);
-    } catch {
+    } catch (error) {
+      // Trying the next title is right -- one bad query should not sink the match -- but doing it
+      // silently is how a 400 on every title containing "!" stayed invisible.
+      console.warn(`[hikari] seerr search failed for "${query}": ${error.message}`);
       continue;
     }
     for (const item of results) {
@@ -178,54 +271,23 @@ export async function resolve(anime) {
   if (!best) return { matched: false, candidates: candidates.slice(0, 5).map(slim) };
 
   const item = best.candidate;
-  const result = {
-    matched: true,
-    confidence: Number(best.score.toFixed(3)),
-    tmdbId: item.id,
-    mediaType: item.mediaType,
-    title: item.name || item.title,
-    year: best.candidateYear,
-    status: STATUS[item.mediaInfo?.status] || "none",
-    animeKeyword: null,
-    seasons: null,
-    suggestedSeason: null
-  };
-
-  try {
-    const detail = item.mediaType === "tv" ? await tvDetail(item.id) : await movieDetail(item.id);
-    result.animeKeyword = hasAnimeKeyword(detail);
-    result.status = detail.mediaInfo ? STATUS[detail.mediaInfo.status] || "none" : "none";
-  } catch {
-    result.animeKeyword = null;
-  }
-
-  if (item.mediaType === "tv") {
-    try {
-      const detail = await tvDetail(item.id);
-      const taken = takenSeasons(detail);
-
-      result.seasons = (detail.seasons || [])
-        .filter(s => s.seasonNumber > 0)
-        .map(s => {
-          const label = taken.get(s.seasonNumber);
-          return {
-            seasonNumber: s.seasonNumber,
-            name: s.name,
-            airDate: s.airDate,
-            episodeCount: s.episodeCount,
-            // `taken` is the flag clients branch on; `status` is only for display, so changing
-            // the wording cannot silently re-enable requesting.
-            taken: Boolean(label),
-            status: label || "none"
-          };
-        });
-      result.suggestedSeason = guessSeasonNumber(anime, result.seasons);
-    } catch {
-      result.seasons = null;
-    }
-  }
-
-  return result;
+  return enrich(
+    {
+      matched: true,
+      via: "title",
+      confidence: Number(best.score.toFixed(3)),
+      tmdbId: item.id,
+      mediaType: item.mediaType,
+      title: item.name || item.title,
+      year: best.candidateYear,
+      status: STATUS[item.mediaInfo?.status] || "none",
+      animeKeyword: null,
+      seasons: null,
+      suggestedSeason: null
+    },
+    anime,
+    null
+  );
 }
 
 export async function createRequest({ tmdbId, mediaType, seasons, overrides }) {
