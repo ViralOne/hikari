@@ -140,7 +140,10 @@ export function App() {
     const cache = health()?.cache;
     if (!cache || cache.hits + cache.misses === 0) return null;
     const rate = percent(cache.hitRate);
-    return { short: `${rate} cached`, long: `${rate} hits, ${cache.entries} entries${cache.stale ? `, ${cache.stale} served stale` : ""}` };
+    const notes = [`${rate} hits`, `${cache.entries} entries`];
+    if (cache.revalidated) notes.push(`${cache.revalidated} refreshed in the background`);
+    if (cache.stale) notes.push(`${cache.stale} served stale`);
+    return { short: `${rate} cached`, long: notes.join(", ") };
   });
 
   // The sidebar's status list is hidden on a phone, so the tally has to be reachable from the

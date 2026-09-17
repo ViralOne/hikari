@@ -44,7 +44,7 @@ export function search(query) {
   return cached(key, 30 * 60 * 1000, async () => {
     const body = await api(`/search?query=${encodeURIComponent(query)}&page=1&language=en`);
     return body.results || [];
-  });
+  }, { staleFor: 60 * 60 * 1000 });
 }
 
 // Jellyseerr's detail response embeds the requesting user's email, Plex/Jellyfin ids and the

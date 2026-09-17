@@ -42,17 +42,25 @@ Every variable goes in `.env`. Anything left blank disables its feature rather t
 
 Responses are cached in memory, so normal browsing serves in single-digit milliseconds:
 
-| Data | Cached for |
-| --- | --- |
-| Discover rows | 10 minutes |
-| Continue the story | 30 minutes |
-| Airing schedule | 15 minutes |
-| Anime detail | 1 hour |
-| All-time top chart | 6 hours |
-| Sonarr series list | 2 minutes |
-| Jellyfin series index | 1 minute |
-| Queue and torrents | 15 seconds |
-| Homepage counters | 1 minute |
+| Data | Fresh for | Served stale while refreshing for a further |
+| --- | --- | --- |
+| Discover rows | 10 minutes | 30 minutes |
+| Continue the story | 30 minutes | 30 minutes |
+| Airing schedule | 15 minutes | 45 minutes |
+| Anime detail (AniList) | 1 hour | 1 hour |
+| All-time top chart | 6 hours | 18 hours |
+| Sonarr series list | 2 minutes | 8 minutes |
+| Jellyfin series index | 1 minute | 4 minutes |
+| Shoko series index | 5 minutes | 20 minutes |
+| Queue and torrents | 15 seconds | — |
+| Jellyseerr request state | 30 seconds | — |
+| Homepage counters | 1 minute | 2 minutes |
+
+The third column is stale-while-revalidate: once the fresh window has passed, the next request is
+answered from the old value immediately and the refresh runs behind it, so the first open after a
+quiet spell is as fast as the second. Data where an old answer would be a wrong one, such as
+Jellyseerr's request state or a Sonarr episode list mid-download, has no grace and always waits for
+the upstream. Anything you change through Hikari clears the affected entries at once regardless.
 
 The cache is capped and sweeps expired entries, because search keys come from the query string. If an
 upstream service fails or rate-limits, the last good value is served instead of an error page.

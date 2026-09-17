@@ -33,6 +33,8 @@ export function systemInfo() {
 }
 
 export function seriesIndex() {
+  // The full recursive listing is the slow call behind every card badge; an index a few minutes old
+  // answers at once and refreshes behind, and markPlayed/refresh still invalidate it outright.
   return cached("jellyfin:series", 60 * 1000, async () => {
     const user = await userId();
     const body = await api(
@@ -75,7 +77,7 @@ export function seriesIndex() {
     }
 
     return { byAniList, byAnidb, byTvdb, byPath, byTitle };
-  });
+  }, { staleFor: 4 * 60 * 1000 });
 }
 
 function push(map, key, value) {
@@ -222,7 +224,7 @@ export function libraries() {
       collectionType: folder.CollectionType || null,
       locations: folder.Locations || []
     }));
-  });
+  }, { staleFor: 30 * 60 * 1000 });
 }
 
 export async function animeLibrary() {

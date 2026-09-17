@@ -39,7 +39,7 @@ export function movies() {
         )
       ]
     }));
-  });
+  }, { staleFor: 8 * 60 * 1000 });
 }
 
 // Movies live in Radarr, so the Sonarr matcher deliberately skips them. TMDB id is exact when

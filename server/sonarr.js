@@ -258,6 +258,8 @@ export async function searchEpisodes(episodeIds) {
 }
 
 export function series() {
+  // Writes through Hikari invalidate this; for everything else a list a few minutes old is fine to
+  // answer with while the refresh runs.
   return cached("sonarr:series", 2 * 60 * 1000, async () => {
     const list = await api("/series");
     return list.map(item => ({
@@ -278,7 +280,7 @@ export function series() {
           .filter(usable)
       )]
     }));
-  });
+  }, { staleFor: 8 * 60 * 1000 });
 }
 
 export function qualityProfiles() {

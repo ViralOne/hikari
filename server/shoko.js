@@ -31,6 +31,8 @@ export function seriesIndex() {
     return Promise.resolve({ byMal: new Map(), byAnidb: new Map(), byTmdb: new Map(), byTvdb: new Map() });
   }
 
+  // Paged walk of the whole library. Served stale within the grace and refreshed behind, because a
+  // series index minutes old is still the right index for every title in it.
   return cached("shoko:series", 5 * 60 * 1000, async () => {
     // Shoko rejects pageSize above 100, so walk the pages.
     const items = [];
@@ -82,7 +84,7 @@ export function seriesIndex() {
     }
 
     return { byMal, byAnidb, byTmdb, byTvdb };
-  });
+  }, { staleFor: 20 * 60 * 1000 });
 }
 
 // AniList exposes idMal, and Shoko records MAL ids, so that pair is an exact bridge for
@@ -154,7 +156,7 @@ export function fileIndex() {
     }
 
     return { total: files.length, unlinked: unlinkedFiles.length, unlinkedFiles, byTail };
-  });
+  }, { staleFor: 20 * 60 * 1000 });
 }
 
 // Shoko and Sonarr mount the library at different roots, so only the tail of the path can be

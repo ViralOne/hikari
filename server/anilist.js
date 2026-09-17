@@ -105,14 +105,21 @@ const PAGE_QUERY = `
 // disk. The opt-in is a key prefix rather than a flag so the cache can allowlist by prefix alone.
 export function page(variables, ttlMs = 10 * 60 * 1000, { persist = false } = {}) {
   const key = `${persist ? "anilist:discover:" : "anilist:page:"}${JSON.stringify(variables)}`;
-  return cached(key, ttlMs, async () => {
-    const data = await gql(PAGE_QUERY, { page: 1, perPage: 30, ...variables });
-    return {
-      total: data.Page.pageInfo.total,
-      hasNextPage: data.Page.pageInfo.hasNextPage,
-      media: data.Page.media.map(shape)
-    };
-  });
+  // Rankings drift slowly; a page a few TTLs old answered at once beats a blank rail. This is the
+  // grace that also lets a restart hand back last session's discover page while it refreshes.
+  return cached(
+    key,
+    ttlMs,
+    async () => {
+      const data = await gql(PAGE_QUERY, { page: 1, perPage: 30, ...variables });
+      return {
+        total: data.Page.pageInfo.total,
+        hasNextPage: data.Page.pageInfo.hasNextPage,
+        media: data.Page.media.map(shape)
+      };
+    },
+    { staleFor: 3 * ttlMs }
+  );
 }
 
 const SCHEDULE_QUERY = `
@@ -130,18 +137,23 @@ const SCHEDULE_QUERY = `
 
 export function schedule(fromUnix, toUnix) {
   const key = `anilist:schedule:${fromUnix}:${toUnix}`;
-  return cached(key, 15 * 60 * 1000, async () => {
-    const items = [];
-    for (let p = 1; p <= 4; p += 1) {
-      const data = await gql(SCHEDULE_QUERY, { from: fromUnix, to: toUnix, page: p });
-      for (const entry of data.Page.airingSchedules) {
-        if (entry.media?.isAdult) continue;
-        items.push({ episode: entry.episode, airingAt: entry.airingAt, media: shape(entry.media) });
+  return cached(
+    key,
+    15 * 60 * 1000,
+    async () => {
+      const items = [];
+      for (let p = 1; p <= 4; p += 1) {
+        const data = await gql(SCHEDULE_QUERY, { from: fromUnix, to: toUnix, page: p });
+        for (const entry of data.Page.airingSchedules) {
+          if (entry.media?.isAdult) continue;
+          items.push({ episode: entry.episode, airingAt: entry.airingAt, media: shape(entry.media) });
+        }
+        if (!data.Page.pageInfo.hasNextPage) break;
       }
-      if (!data.Page.pageInfo.hasNextPage) break;
-    }
-    return items;
-  });
+      return items;
+    },
+    { staleFor: 45 * 60 * 1000 }
+  );
 }
 
 const BY_IDS_QUERY = `
@@ -163,10 +175,15 @@ export async function byIds(ids, ttlMs = 60 * 60 * 1000) {
 
   const pages = await Promise.all(
     chunks.map(chunk =>
-      cached(`anilist:ids:${chunk.join(",")}`, ttlMs, async () => {
-        const data = await gql(BY_IDS_QUERY, { ids: chunk, perPage: chunk.length });
-        return data.Page.media.map(shape);
-      })
+      cached(
+        `anilist:ids:${chunk.join(",")}`,
+        ttlMs,
+        async () => {
+          const data = await gql(BY_IDS_QUERY, { ids: chunk, perPage: chunk.length });
+          return data.Page.media.map(shape);
+        },
+        { staleFor: ttlMs }
+      )
     )
   );
   return pages.flat();
@@ -175,10 +192,15 @@ export async function byIds(ids, ttlMs = 60 * 60 * 1000) {
 const BY_ID_QUERY = `query ($id: Int) { Media(id: $id, type: ANIME) { ${MEDIA_FIELDS} } }`;
 
 export function byId(id) {
-  return cached(`anilist:media:${id}`, 60 * 60 * 1000, async () => {
-    const data = await gql(BY_ID_QUERY, { id: Number(id) });
-    return shape(data.Media);
-  });
+  return cached(
+    `anilist:media:${id}`,
+    60 * 60 * 1000,
+    async () => {
+      const data = await gql(BY_ID_QUERY, { id: Number(id) });
+      return shape(data.Media);
+    },
+    { staleFor: 60 * 60 * 1000 }
+  );
 }
 
 function shape(media) {
@@ -260,7 +282,7 @@ const CHAIN_QUERY = `
 export function prequelDepth(anilistId) {
   const id = Number(anilistId);
   if (!Number.isInteger(id) || id <= 0) return Promise.resolve(0);
-  return cached(`anilist:prequel-depth:${id}`, 24 * 60 * 60 * 1000, () => walkPrequels(id));
+  return cached(`anilist:prequel-depth:${id}`, 24 * 60 * 60 * 1000, () => walkPrequels(id), { staleFor: 24 * 60 * 60 * 1000 });
 }
 
 async function walkPrequels(startId) {

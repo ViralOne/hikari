@@ -343,7 +343,16 @@ export type Health = {
   ok: boolean;
   checks: Record<string, { configured: boolean; ok: boolean; detail: string }>;
   uptimeSeconds?: number;
-  cache?: { entries: number; limit: number; hits: number; misses: number; stale: number; hitRate: number | null; persisted: boolean };
+  cache?: {
+    entries: number;
+    limit: number;
+    hits: number;
+    misses: number;
+    stale: number;
+    revalidated: number;
+    hitRate: number | null;
+    persisted: boolean;
+  };
   upstream?: Record<string, UpstreamStat>;
 };
 

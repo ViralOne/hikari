@@ -138,6 +138,8 @@ export function rank(media, reasons) {
 export function sequels({ limit = 24 } = {}) {
   if (!enabled.anilistList) return Promise.resolve([]);
 
+  // Saving to the list invalidates this; otherwise a half-hour-old row served at once is worth more
+  // than a blank one while two AniList queries run.
   return cached("anilist:sequels", 30 * 60 * 1000, async () => {
     const me = await viewer();
     if (!me) return [];
@@ -148,5 +150,5 @@ export function sequels({ limit = 24 } = {}) {
 
     const media = await byIds([...reasons.keys()]);
     return rank(media, reasons).slice(0, limit);
-  });
+  }, { staleFor: 30 * 60 * 1000 });
 }

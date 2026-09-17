@@ -5,7 +5,7 @@
 | Route | Purpose |
 | --- | --- |
 | `GET /api/health/live` | `{"ok":true}` as long as the process is serving. The only route the login never gates, because the container healthcheck cannot hold a cookie |
-| `GET /api/health` | Per-service connectivity and detected versions, plus `cache` (hits, misses, stale serves, hit rate since boot) and `upstream` (per-service call and error counts, median and p95 latency over the last 100 calls). The sidebar shows the median next to each service |
+| `GET /api/health` | Per-service connectivity and detected versions, plus `cache` (hits, misses, background revalidations, stale serves and hit rate since boot) and `upstream` (per-service call and error counts, median and p95 latency over the last 100 calls). The sidebar shows the median next to each service |
 | `GET /api/discover` | The Discover rows, annotated with library and progress |
 | `GET /api/sequels` | Sequels to what you have finished, from your AniList list. Needs `ANILIST_TOKEN` |
 | `GET /api/schedule?days=7` | Airing schedule, 1 to 14 days |

@@ -68,7 +68,7 @@ export function listIndex() {
       }
     }
     return index;
-  });
+  }, { staleFor: 10 * 60 * 1000 });
 }
 
 export async function entryFor(anilistId) {

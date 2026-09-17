@@ -39,16 +39,21 @@ const MAX_RESTORED_TTL_MS = 24 * 60 * 60 * 1000;
 
 const snapshotPath = (process.env.CACHE_FILE || "").trim();
 
-// Since boot. A hit is an unexpired entry; a miss ran the producer; stale is a producer failure
-// that was answered with the last good value instead of an error.
-const counters = { hits: 0, misses: 0, stale: 0 };
+// Since boot. A hit is an unexpired entry; a miss ran the producer and made the caller wait; stale
+// is a producer failure answered with the last good value; revalidated is a stale-but-in-grace entry
+// answered at once while the producer ran behind it.
+const counters = { hits: 0, misses: 0, stale: 0, revalidated: 0 };
 
 function sweep() {
   const now = Date.now();
   for (const [key, entry] of store) {
-    if (entry.expires <= now) store.delete(key);
+    // An entry past its TTL but inside its grace is still worth its slot: it is what lets the next
+    // caller be answered at once.
+    if (staleUntil(entry) <= now) store.delete(key);
   }
 }
+
+const staleUntil = entry => entry.staleUntil ?? entry.expires;
 
 function evictOldest() {
   const overflow = store.size - MAX_ENTRIES;
@@ -61,20 +66,35 @@ function evictOldest() {
   for (let i = 0; i < overflow && i < disposable.length; i += 1) store.delete(disposable[i][0]);
 }
 
-export function cached(key, ttlMs, producer) {
+// `staleFor` opts a key into stale-while-revalidate: for that long after the TTL, a caller gets
+// the old value at once and the producer runs behind it, so the first open after a quiet spell is
+// as fast as the second. It is opt-in because for some keys an old answer is a wrong one -- a
+// Jellyseerr request state, a Sonarr episode list mid-download -- and those keep blocking on
+// the producer. Entries with no grace behave exactly as before.
+export function cached(key, ttlMs, producer, { staleFor = 0 } = {}) {
   const now = Date.now();
   const hit = store.get(key);
   if (hit && hit.expires > now) {
     counters.hits += 1;
     return hit.value;
   }
+
+  if (hit && hit.settled !== undefined && staleUntil(hit) > now) {
+    counters.revalidated += 1;
+    if (!hit.refreshing) {
+      hit.refreshing = true;
+      revalidate(key, hit, ttlMs, staleFor, producer);
+    }
+    return hit.value;
+  }
+
   counters.misses += 1;
 
   const previous = hit?.settled;
 
   // Identity matters: a slow producer must never mutate or delete a newer entry that replaced
   // its own after the TTL rolled over.
-  const entry = { value: undefined, expires: now + ttlMs, settled: previous };
+  const entry = { value: undefined, expires: now + ttlMs, staleUntil: now + ttlMs + staleFor, settled: previous };
 
   entry.value = Promise.resolve()
     .then(producer)
@@ -93,6 +113,7 @@ export function cached(key, ttlMs, producer) {
         store.set(key, {
           value: Promise.resolve(previous),
           expires: Date.now() + STALE_RETRY_MS,
+          staleUntil: Date.now() + STALE_RETRY_MS,
           settled: previous
         });
         return previous;
@@ -110,6 +131,34 @@ export function cached(key, ttlMs, producer) {
   }
 
   return entry.value;
+}
+
+// The background half of stale-while-revalidate. The stale entry stays in place until the producer
+// has a result, and is only replaced if it is still the entry in the store: an invalidate() that
+// landed meanwhile means the fresh value was built from something already known to be out of date,
+// so it is dropped rather than resurrected.
+function revalidate(key, stale, ttlMs, staleFor, producer) {
+  Promise.resolve()
+    .then(producer)
+    .then(result => {
+      if (store.get(key) !== stale) return;
+      const now = Date.now();
+      store.set(key, {
+        value: Promise.resolve(result),
+        expires: now + ttlMs,
+        staleUntil: now + ttlMs + staleFor,
+        settled: result
+      });
+    })
+    .catch(err => {
+      if (store.get(key) !== stale) return;
+      // Hold the stale value and stop retrying for a moment, exactly as a failed foreground refresh
+      // does. The grace still bounds how long it can be served.
+      counters.stale += 1;
+      console.warn(`[hikari] ${key}: ${err.message}, keeping stale value`);
+      stale.expires = Math.min(Date.now() + STALE_RETRY_MS, staleUntil(stale));
+      stale.refreshing = false;
+    });
 }
 
 // Entries composed from several upstreams. They cannot be invalidated by the prefix of any one
@@ -137,6 +186,7 @@ export function stats() {
     hits: counters.hits,
     misses: counters.misses,
     stale: counters.stale,
+    revalidated: counters.revalidated,
     hitRate: lookups === 0 ? null : counters.hits / lookups
   };
 }
@@ -165,10 +215,14 @@ export function loadSnapshot() {
   for (const [key, entry] of Object.entries(parsed.entries)) {
     if (!persistable(key)) continue;
     if (!entry || typeof entry !== "object" || typeof entry.expires !== "number") continue;
-    if (entry.settled === undefined || entry.expires <= now) continue;
+    // Restored while inside the grace, not only the TTL: an old discover page answers the first
+    // open after a restart at once and refreshes behind it, which is the whole point of keeping it.
+    const grace = typeof entry.staleUntil === "number" ? entry.staleUntil : entry.expires;
+    if (entry.settled === undefined || grace <= now) continue;
 
     const expires = Math.min(entry.expires, now + MAX_RESTORED_TTL_MS);
-    store.set(key, { value: Promise.resolve(entry.settled), expires, settled: entry.settled });
+    const staleUntil = Math.min(grace, now + MAX_RESTORED_TTL_MS);
+    store.set(key, { value: Promise.resolve(entry.settled), expires, staleUntil, settled: entry.settled });
     restored += 1;
   }
   return restored;
@@ -180,7 +234,7 @@ export function saveSnapshot() {
   const entries = {};
   for (const [key, entry] of store) {
     if (!persistable(key) || entry.settled === undefined) continue;
-    entries[key] = { expires: entry.expires, settled: entry.settled };
+    entries[key] = { expires: entry.expires, staleUntil: staleUntil(entry), settled: entry.settled };
   }
 
   const count = Object.keys(entries).length;

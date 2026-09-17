@@ -1272,6 +1272,7 @@ app.get("/api/homepage", async c => c.json(await homepageSnapshot()));
 // the underlying TTLs. Otherwise a 60s poll misses the 15s Sonarr/qBittorrent caches every
 // time and permanently loads all four upstreams.
 function homepageSnapshot() {
+  // Homepage polls this on a timer; answering stale and refreshing behind keeps the widget instant.
   return cached("hikari:homepage", 60 * 1000, async () => {
     const now = anilist.currentSeason();
 
@@ -1289,7 +1290,7 @@ function homepageSnapshot() {
     const downloading = torrents.filter(torrent => torrent.active);
 
     return snapshotBody(now, airing, queue, downloading, requests);
-  });
+  }, { staleFor: 2 * 60 * 1000 });
 }
 
 function snapshotBody(now, airing, queue, downloading, requests) {
