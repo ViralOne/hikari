@@ -283,14 +283,23 @@ export async function markPlayed(itemId) {
   return true;
 }
 
-// Exact episode counts and the next unwatched episode. Only used by the detail panel.
-export async function episodeProgress(seriesIds) {
-  if (!enabled.jellyfin || !seriesIds?.length) return null;
+// Exact episode counts and the next unwatched episode. Only used by the detail panel, which
+// paid for up to four sequential /Items queries on every open, including reopening a title it
+// had already shown. Keyed on the ids so a changed match recomputes, and cleared by the
+// invalidate("jellyfin:") that markPlayed already issues, so a freshly marked episode is not
+// hidden behind the TTL.
+export function episodeProgress(seriesIds) {
+  if (!enabled.jellyfin || !seriesIds?.length) return Promise.resolve(null);
 
+  const ids = seriesIds.slice(0, 4);
+  return cached(`jellyfin:episodes:${ids.join(",")}`, 60 * 1000, () => computeEpisodeProgress(ids));
+}
+
+async function computeEpisodeProgress(seriesIds) {
   const user = await userId();
   const episodes = [];
 
-  for (const seriesId of seriesIds.slice(0, 4)) {
+  for (const seriesId of seriesIds) {
     const body = await api(
       `/Items?userId=${user}&ParentId=${seriesId}&IncludeItemTypes=Episode&Recursive=true` +
         `&Fields=UserData&SortBy=ParentIndexNumber,IndexNumber&SortOrder=Ascending`

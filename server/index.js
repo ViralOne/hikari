@@ -314,10 +314,10 @@ app.get("/api/discover", async c => {
   const problems = {};
 
   const [airing, trending, upcoming, top, continuing] = await Promise.all([
-    anilist.page({ season: now.season, seasonYear: now.year, sort: ["POPULARITY_DESC"], perPage: 30 }),
-    anilist.page({ sort: ["TRENDING_DESC"], perPage: 30 }),
-    anilist.page({ season: next.season, seasonYear: next.year, sort: ["POPULARITY_DESC"], perPage: 30 }),
-    anilist.page({ sort: ["SCORE_DESC"], perPage: 30 }, 6 * 60 * 60 * 1000),
+    anilist.page({ season: now.season, seasonYear: now.year, sort: ["POPULARITY_DESC"], perPage: 30 }, undefined, { persist: true }),
+    anilist.page({ sort: ["TRENDING_DESC"], perPage: 30 }, undefined, { persist: true }),
+    anilist.page({ season: next.season, seasonYear: next.year, sort: ["POPULARITY_DESC"], perPage: 30 }, undefined, { persist: true }),
+    anilist.page({ sort: ["SCORE_DESC"], perPage: 30 }, 6 * 60 * 60 * 1000, { persist: true }),
     // Needs your list, so it is empty without a token, and a failure here must not cost you the
     // whole page: the other four rows do not depend on it.
     sequels.sequels().catch(err => {
@@ -403,32 +403,54 @@ app.get("/api/search", async c => {
   return c.json({ total: result.total, media: annotated, errors: problems });
 });
 
+// The composed body sits on top of seerr's own detail cache, so the two TTLs add up: a request
+// state changed in Jellyseerr directly (which no invalidate() can see) is visible after at most
+// seerr.DETAIL_TTL_MS plus this. Half of seerr's TTL keeps that worst case at 45s. Changes made
+// through Hikari clear this entry immediately: invalidate() sweeps composed "hikari:" entries
+// whenever any upstream it was built from is invalidated.
+const ANIME_DETAIL_TTL_MS = seerr.DETAIL_TTL_MS / 2;
+
 app.get("/api/anime/:id", async c => {
   // A non-integer id becomes NaN, which JSON.stringify turns into a null GraphQL variable.
   // AniList then drops the id filter entirely and returns an arbitrary title.
   const id = Number(c.req.param("id"));
   if (!Number.isInteger(id) || id <= 0) return c.json({ error: "id must be a positive integer" }, 400);
 
+  const composed = await cached(`hikari:anime:${id}`, ANIME_DETAIL_TTL_MS, () => composeAnime(id));
+  if (!composed) return c.json({ error: "not found" }, 404);
+
+  // `narrowing` is the detached post-request correction, which finishes long after the request
+  // response and is read live rather than composed, because the panel polls this route to follow it.
+  const narrowing = reconcile.statusFor(id);
+  const inspection = composed.inspection;
+  const cours = inspection || narrowing ? { ...(inspection || {}), narrowing } : null;
+
+  return c.json({ ...composed.body, cours });
+});
+
+async function composeAnime(id) {
   const anime = await anilist.byId(id);
-  if (!anime) return c.json({ error: "not found" }, 404);
+  if (!anime) return null;
 
   const [shokoInfo, request] = await Promise.all([
     shoko.infoFor(anime).catch(() => null),
     enabled.jellyseerr ? seerr.resolve(anime).catch(err => ({ matched: false, error: err.message })) : Promise.resolve(null)
   ]);
 
-  const library = await sonarr.findMatch(anime, shokoInfo).catch(() => null);
-  const [movie, listEntry, files] = await Promise.all([
+  // Sonarr's match only needs shokoInfo, so it joins the fan-out rather than holding a round trip
+  // of its own in front of it.
+  const [library, movie, listEntry, files] = await Promise.all([
+    sonarr.findMatch(anime, shokoInfo).catch(() => null),
     radarr.findMatch(anime, request?.tmdbId).catch(() => null),
     anilistList.entryFor(anime.id).catch(() => null),
     shokoInfo ? shoko.fileDetail(shokoInfo.shokoId).catch(() => null) : Promise.resolve(null)
   ]);
 
-  // Reconciled here rather than behind a button: "3 missing" on its own sent me looking for a
-  // download that had already happened. Everything it needs is cached by this point.
-  const report = shokoInfo && files?.missing?.length ? await missingReport(id).catch(() => null) : null;
-
-  const [routing, watch, inspection] = await Promise.all([
+  const [report, routing, watch, inspection] = await Promise.all([
+    // Reconciled here rather than behind a button: "3 missing" on its own sent me looking for a
+    // download that had already happened. Everything it needs is cached by this point, which is
+    // also why it can run alongside the rest instead of ahead of them.
+    shokoInfo && files?.missing?.length ? missingReport(id).catch(() => null) : Promise.resolve(null),
     describeRouting(request).catch(() => null),
     jellyfin.progressFor(anime, library, shokoInfo).catch(() => null),
     // Whether TMDB has folded several of Sonarr's seasons into one, which is what makes a plain
@@ -440,24 +462,21 @@ app.get("/api/anime/:id", async c => {
 
   const episodes = watch ? await jellyfin.episodeProgress(watch.ids).catch(() => null) : null;
 
-  // `narrowing` is the detached post-request correction, which finishes long after the request
-  // response. Reported here because the panel already refetches this route to follow it.
-  const narrowing = reconcile.statusFor(id);
-  const cours = inspection || narrowing ? { ...(inspection || {}), narrowing } : null;
-
-  return c.json({
-    ...anime,
-    library,
-    movie,
-    shoko: shokoInfo ? { ...shokoInfo, files, report: report?.error ? null : report } : null,
-    list: listEntry,
-    request,
-    routing,
-    cours,
-    watch: watch ? { ...watch, episodes } : null,
-    links: seerr.links(anime, request)
-  });
-});
+  return {
+    inspection,
+    body: {
+      ...anime,
+      library,
+      movie,
+      shoko: shokoInfo ? { ...shokoInfo, files, report: report?.error ? null : report } : null,
+      list: listEntry,
+      request,
+      routing,
+      watch: watch ? { ...watch, episodes } : null,
+      links: seerr.links(anime, request)
+    }
+  };
+}
 
 app.post("/api/request", async c => {
   const body = await c.req.json();

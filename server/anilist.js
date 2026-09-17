@@ -99,8 +99,11 @@ const PAGE_QUERY = `
   }
 `;
 
-export function page(variables, ttlMs = 10 * 60 * 1000) {
-  const key = `anilist:page:${JSON.stringify(variables)}`;
+// `persist` opts a page into the restart snapshot. Only the fixed discover shapes should ask for
+// it: /api/search builds its variables from the query string, and those must not reach a file on
+// disk. The opt-in is a key prefix rather than a flag so the cache can allowlist by prefix alone.
+export function page(variables, ttlMs = 10 * 60 * 1000, { persist = false } = {}) {
+  const key = `${persist ? "anilist:discover:" : "anilist:page:"}${JSON.stringify(variables)}`;
   return cached(key, ttlMs, async () => {
     const data = await gql(PAGE_QUERY, { page: 1, perPage: 30, ...variables });
     return {

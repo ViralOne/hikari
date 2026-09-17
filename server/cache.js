@@ -12,8 +12,9 @@ const MAX_ENTRIES = 2000;
 const PROTECTED_PREFIXES = ["anilist:", "seerr:", "shoko:series", "jellyfin:series", "sonarr:series"];
 
 // Restarts used to drop every entry, which is how a rebuild loop hit AniList's rate limit.
-// anilist:page: keys embed the query variables, which include whatever the user typed into
-// search, so only the fixed discover/schedule shapes are persisted.
+// anilist:page: keys embed the query variables, which for /api/search come straight from the
+// query string (q, genre, season, ...), so they are never persisted. The discover rows ask for
+// anilist:discover: instead, which only the fixed shapes in /api/discover ever produce.
 // anilist:prequel-depth: costs one AniList query per season in the chain and only changes when a
 // sequel is announced, so it is the least worth re-fetching of anything here. The key holds a
 // numeric id only, so no user input reaches the snapshot.
@@ -21,7 +22,12 @@ const PROTECTED_PREFIXES = ["anilist:", "seerr:", "shoko:series", "jellyfin:seri
 // seerr:tv: and seerr:movie: used to be persisted, and must not be: they carry mediaInfo, so a
 // restart restored a stale "already requested" for whatever had been deleted in Jellyseerr
 // meanwhile. Their TTL is now seconds, which makes persisting them pointless as well as wrong.
-const PERSIST_PREFIXES = ["anilist:media:", "anilist:schedule:", "anilist:prequel-depth:"];
+const PERSIST_PREFIXES = [
+  "anilist:media:",
+  "anilist:schedule:",
+  "anilist:prequel-depth:",
+  "anilist:discover:"
+];
 const PERSIST_DENY = ["\"search\":"];
 
 // Upstreams that rate-limit stay angry for a while, so hold the stale value rather than
@@ -97,9 +103,19 @@ export function cached(key, ttlMs, producer) {
   return entry.value;
 }
 
+// Entries composed from several upstreams. They cannot be invalidated by the prefix of any one
+// upstream, so every invalidation of anything else sweeps them: they are cheap to rebuild and
+// short-lived, and a stale composed body would otherwise outlive the fresh parts it was built from.
+const COMPOSED_PREFIX = "hikari:";
+
 export function invalidate(prefix) {
   for (const key of store.keys()) {
     if (key.startsWith(prefix)) store.delete(key);
+  }
+
+  if (prefix.startsWith(COMPOSED_PREFIX)) return;
+  for (const key of store.keys()) {
+    if (key.startsWith(COMPOSED_PREFIX)) store.delete(key);
   }
 }
 

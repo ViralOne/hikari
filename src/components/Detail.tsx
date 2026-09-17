@@ -14,6 +14,7 @@ import {
   saveListEntry,
   searchMissingEpisodes,
   setSonarrSeriesType,
+  type AnimeDetail,
   type MissingSearchPlan,
   type NarrowMode,
   type PlayedPlan,
@@ -27,10 +28,47 @@ import { Icon } from "./Icon";
 type Selection = number[] | "all";
 type Outcome = { ok: boolean; message: string };
 
-const fetchDetail = (id: number, _token: number) => getAnime(id);
+// Keyed by token as well as id, so every mutating action misses rather than showing stale state.
+const detailCache = new Map<string, { at: number; value: AnimeDetail }>();
+const detailInflight = new Set<string>();
+const DETAIL_STALE_MS = 30 * 1000;
+const DETAIL_CACHE_MAX = 40;
+
+function rememberDetail(key: string, value: AnimeDetail) {
+  // Delete first: Map.set on an existing key keeps its original insertion position, which would
+  // make the title you keep reopening the first one evicted.
+  detailCache.delete(key);
+  detailCache.set(key, { at: Date.now(), value });
+  while (detailCache.size > DETAIL_CACHE_MAX) {
+    const oldest = detailCache.keys().next().value;
+    if (oldest === undefined) break;
+    detailCache.delete(oldest);
+  }
+}
 
 export function Detail(props: { id: number; token: number; onClose: () => void; onRequested: () => void }) {
-  const detail = createMemo(() => fetchDetail(props.id, props.token));
+  const [revision, setRevision] = createSignal(0);
+
+  const fetchDetail = (id: number, token: number, _revision: number) => {
+    const key = `${id}:${token}`;
+    const hit = detailCache.get(key);
+    if (!hit) return getAnime(id).then(value => (rememberDetail(key, value), value));
+
+    // Guarded on staleness and in-flight, or the revision bump would re-enter and never settle.
+    if (Date.now() - hit.at > DETAIL_STALE_MS && !detailInflight.has(key)) {
+      detailInflight.add(key);
+      getAnime(id)
+        .then(value => {
+          rememberDetail(key, value);
+          setRevision(current => current + 1);
+        })
+        .catch(() => {})
+        .finally(() => detailInflight.delete(key));
+    }
+    return Promise.resolve(hit.value);
+  };
+
+  const detail = createMemo(() => fetchDetail(props.id, props.token, revision()));
   const [overrides, setOverrides] = createSignal<Record<number, Selection>>({});
   const [outcomes, setOutcomes] = createSignal<Record<number, Outcome>>({});
   const [requested, setRequested] = createSignal<Record<number, number[] | "all">>({});
