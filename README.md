@@ -34,6 +34,7 @@
 - Optional Jellyfin login, so the door is shut without Hikari keeping any accounts of its own
 - Setup entirely in the browser, with no configuration file needed and a connection test per service
 - Built for a phone as well as a desk: bottom tab bar, bottom sheets, no horizontal scrolling
+- Fast from the first open: the deck is built at start-up and kept fresh in the background, expired data is served while it refreshes, and the sidebar shows each service's latency and the cache hit rate
 - A `customapi` endpoint for [Homepage](https://gethomepage.dev)
 
 Missing something? Open an [issue](/../../issues).
@@ -67,6 +68,7 @@ Jellyseerr is required. Full instructions: [docs/getting-started.md](docs/gettin
 - [Security](docs/security.md): the threat model and `HIKARI_TOKEN`
 - [API](docs/api.md) and [Homepage widget](docs/homepage-widget.md)
 - [Troubleshooting](docs/troubleshooting.md)
+- [Developing and testing](docs/getting-started.md#checks): unit tests, and the whole server against fake services with `npm run test:integration` or `npm run dev:fakes`
 
 ## Support
 
@@ -75,4 +77,6 @@ parts, so say which services are red in the sidebar and what the detail panel re
 
 ## Built with
 
-Solid 2, Vite 8 and Hono on Node 22. No database. All state lives in the services it talks to.
+Solid 2, Vite 8 and Hono on Node 22. No database: the truth lives in the services it talks to, and the
+only files it keeps are your settings, the session key, your hidden titles and a cache snapshot, all
+under `/cache`.

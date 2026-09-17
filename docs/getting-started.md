@@ -126,7 +126,7 @@ For frontend development with hot reload:
 npm run dev      # API on 7997, Vite dev server on 5273
 ```
 
-Checks:
+### Checks
 
 ```bash
 npm run check             # typecheck
