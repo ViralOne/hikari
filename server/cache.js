@@ -76,6 +76,10 @@ export function cached(key, ttlMs, producer, { staleFor = 0 } = {}) {
   const hit = store.get(key);
   if (hit && hit.expires > now) {
     counters.hits += 1;
+    // Entries restored from the snapshot arrive without a producer; the first caller lends its own,
+    // so refreshAhead() can keep them fresh from then on.
+    // Assumes one producer per key, which holds: every key embeds whatever its producer varies on.
+    if (!hit.producer) Object.assign(hit, { producer, ttlMs, staleFor });
     return hit.value;
   }
 
@@ -94,12 +98,26 @@ export function cached(key, ttlMs, producer, { staleFor = 0 } = {}) {
 
   // Identity matters: a slow producer must never mutate or delete a newer entry that replaced
   // its own after the TTL rolled over.
-  const entry = { value: undefined, expires: now + ttlMs, staleUntil: now + ttlMs + staleFor, settled: previous };
+  // The producer is kept on the entry so refreshAhead() can run it again without the caller.
+  // `refreshing` while the producer runs, so a refreshAhead() tick does not start a second one.
+  const entry = {
+    value: undefined,
+    expires: now + ttlMs,
+    staleUntil: now + ttlMs + staleFor,
+    settled: previous,
+    producer,
+    ttlMs,
+    staleFor,
+    refreshing: true
+  };
 
   entry.value = Promise.resolve()
     .then(producer)
     .then(result => {
-      if (store.get(key) === entry) entry.settled = result;
+      if (store.get(key) === entry) {
+        entry.settled = result;
+        entry.refreshing = false;
+      }
       return result;
     })
     .catch(err => {
@@ -114,7 +132,10 @@ export function cached(key, ttlMs, producer, { staleFor = 0 } = {}) {
           value: Promise.resolve(previous),
           expires: Date.now() + STALE_RETRY_MS,
           staleUntil: Date.now() + STALE_RETRY_MS,
-          settled: previous
+          settled: previous,
+          producer,
+          ttlMs,
+          staleFor
         });
         return previous;
       }
@@ -147,7 +168,10 @@ function revalidate(key, stale, ttlMs, staleFor, producer) {
         value: Promise.resolve(result),
         expires: now + ttlMs,
         staleUntil: now + ttlMs + staleFor,
-        settled: result
+        settled: result,
+        producer,
+        ttlMs,
+        staleFor
       });
     })
     .catch(err => {
@@ -156,9 +180,30 @@ function revalidate(key, stale, ttlMs, staleFor, producer) {
       // does. The grace still bounds how long it can be served.
       counters.stale += 1;
       console.warn(`[hikari] ${key}: ${err.message}, keeping stale value`);
-      stale.expires = Math.min(Date.now() + STALE_RETRY_MS, staleUntil(stale));
+      // Never shortens a still-fresh entry: refreshAhead() starts refreshes before the TTL is up.
+      stale.expires = Math.min(Math.max(stale.expires, Date.now() + STALE_RETRY_MS), staleUntil(stale));
       stale.refreshing = false;
     });
+}
+
+// Refreshes, in the background, every live entry under one of the prefixes that will expire within
+// `withinMs`. The warmer calls this on a timer, so the entries behind the Discover page roll over
+// before a request lands on a stale one. Only entries that exist and are still inside their grace
+// are touched: nothing is fetched that nobody has asked for, and a key that has gone cold stays
+// cold rather than being kept alive for ever. Returns how many were started.
+export function refreshAhead(prefixes, withinMs) {
+  const now = Date.now();
+  let started = 0;
+  for (const [key, entry] of store) {
+    if (!prefixes.some(prefix => key.startsWith(prefix))) continue;
+    if (!entry.producer || entry.settled === undefined || entry.refreshing) continue;
+    if (staleUntil(entry) <= now) continue;
+    if (entry.expires - now > withinMs) continue;
+    entry.refreshing = true;
+    revalidate(key, entry, entry.ttlMs, entry.staleFor, entry.producer);
+    started += 1;
+  }
+  return started;
 }
 
 // Entries composed from several upstreams. They cannot be invalidated by the prefix of any one

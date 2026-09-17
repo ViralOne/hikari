@@ -233,6 +233,15 @@ try {
   check("Sonarr's connection test is answered", hook.status === 200 && hooked.ok === true && hooked.event === "Test", JSON.stringify(hooked));
 
   // -------------------------------------------------------------------------------------------
+  console.log("\nwarm-up");
+
+  // The boot warm-up runs detached, so give it a moment before reading the log.
+  for (let attempt = 0; attempt < 50 && !/discover warmed in/.test(hikari.logs()); attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  check("the server built the Discover page on boot without being asked", /discover warmed in \d+ms/.test(hikari.logs()));
+
+  // -------------------------------------------------------------------------------------------
   const unhandled = fakes.calls.filter(call => call.unhandled);
   check(
     "every upstream call hit a path the fakes know",

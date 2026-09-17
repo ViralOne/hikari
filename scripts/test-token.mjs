@@ -115,7 +115,9 @@ const server = spawn(process.execPath, ["server/index.js"], {
     JELLYSEERR_API_KEY: "not-a-real-key",
     AUTH: "1",
     HIKARI_TOKEN: "",
-    AUTO_LINK: "0"
+    AUTO_LINK: "0",
+    // Nothing here should reach AniList; the warm-up would.
+    CACHE_WARM: "0"
   },
   stdio: ["ignore", "pipe", "pipe"]
 });
@@ -296,7 +298,9 @@ const open = spawn(process.execPath, ["server/index.js"], {
     JELLYSEERR_API_KEY: "not-a-real-key",
     AUTH: "0",
     HIKARI_TOKEN: "",
-    AUTO_LINK: "0"
+    AUTO_LINK: "0",
+    // Nothing here should reach AniList; the warm-up would.
+    CACHE_WARM: "0"
   },
   stdio: ["ignore", "pipe", "pipe"]
 });
@@ -368,7 +372,9 @@ const locked = spawn(process.execPath, ["server/index.js"], {
     JELLYSEERR_API_KEY: "not-a-real-key",
     AUTH: "0",
     HIKARI_TOKEN: "",
-    AUTO_LINK: "0"
+    AUTO_LINK: "0",
+    // Nothing here should reach AniList; the warm-up would.
+    CACHE_WARM: "0"
   },
   stdio: ["ignore", "pipe", "pipe"]
 });

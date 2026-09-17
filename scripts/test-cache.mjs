@@ -10,7 +10,7 @@ import { join } from "node:path";
 
 process.env.CACHE_FILE = join(mkdtempSync(join(tmpdir(), "hikari-cache-")), "cache.json");
 
-const { cached, invalidate, loadSnapshot, saveSnapshot, stats } = await import("../server/cache.js");
+const { cached, invalidate, loadSnapshot, refreshAhead, saveSnapshot, stats } = await import("../server/cache.js");
 
 let failures = 0;
 const check = (name, pass, detail) => {
@@ -155,6 +155,52 @@ console.log("\nstale-while-revalidate");
   version = 4;
   const afterInvalidate = await cached("swr:inv", 1, slow, { staleFor: MINUTE });
   check("a refresh overtaken by invalidate() does not resurrect the key", afterInvalidate === "v4", afterInvalidate);
+}
+
+console.log("\nrefresh ahead of expiry");
+
+{
+  const tick = () => new Promise(resolve => setTimeout(resolve, 15));
+  const soon = producer("soon");
+  const later = producer("later");
+  const other = producer("other");
+  await cached("warm:soon", 50, soon, { staleFor: MINUTE });
+  await cached("warm:later", MINUTE, later, { staleFor: MINUTE });
+  await cached("cold:soon", 50, other, { staleFor: MINUTE });
+
+  const started = refreshAhead(["warm:"], 100);
+  await tick();
+  check("entries under the prefix that expire within the horizon are refreshed", started === 1 && soon.calls() === 2, `${started} started, ${soon.calls()} calls`);
+  check("entries with time left are not", later.calls() === 1);
+  check("entries under other prefixes are not", other.calls() === 1);
+
+  const before = soon.calls();
+  const none = refreshAhead(["warm:"], 5);
+  await tick();
+  check("a freshly refreshed entry is outside a short horizon", none === 0 && soon.calls() === before, `${none} started, ${soon.calls()} calls`);
+
+  // A key nobody has asked for since its grace ran out is dead: warming it would keep it alive for
+  // ever, which for a season-stamped discover page means a query every tick until the next restart.
+  const cold = producer("cold");
+  await cached("warm:cold", 1, cold, { staleFor: 1 });
+  await tick();
+  const revived = refreshAhead(["warm:cold"], MINUTE);
+  await tick();
+  check("an entry past its grace is not resurrected", revived === 0 && cold.calls() === 1, `${revived} started`);
+
+  // A refresh started while the entry was still fresh must not shorten what it replaces on failure.
+  let fail = true;
+  const fragile = () => {
+    if (fail) throw new Error("no");
+    return "fine";
+  };
+  fail = false;
+  await cached("warm:fragile", 50, fragile, { staleFor: MINUTE });
+  fail = true;
+  refreshAhead(["warm:fragile"], 100);
+  await tick();
+  const still = await cached("warm:fragile", 50, fragile, { staleFor: MINUTE });
+  check("a failed early refresh leaves the entry serving", still === "fine");
 }
 
 console.log("\nsnapshot allowlist");

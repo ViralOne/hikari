@@ -84,7 +84,12 @@ export const config = {
     // metadata a hand link does not, and unregistered releases are often added within a day.
     graceHours: num(process.env.AUTO_LINK_GRACE_HOURS, 6, 0, 168),
     maxPerRun: num(process.env.AUTO_LINK_MAX_PER_RUN, 20, 1, 200)
-  }
+  },
+
+  // Builds the Discover page on boot and keeps its entries fresh while the deck is in use. On by
+  // default because the alternative is paying the AniList fan-out on the first open after every
+  // restart; CACHE_WARM=0 for an instance that should stay idle until asked.
+  cacheWarm: !/^(0|false|no|off)$/i.test((process.env.CACHE_WARM || "").trim())
 };
 
 // Mutated in place rather than replaced, because every module holds a reference to this object

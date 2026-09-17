@@ -34,6 +34,7 @@ Every variable goes in `.env`. Anything left blank disables its feature rather t
 | `AUTH_FILE` | no | Where the session signing key lives. Default `/cache/hikari-auth.json` |
 | `SETTINGS_FILE` | no | Where settings saved in the app are written. Default `/cache/hikari-settings.json` |
 | `CACHE_FILE` | no | Path for the cache snapshot, so a restart does not re-fetch AniList |
+| `CACHE_WARM` | no | Default on. Builds the Discover page on boot and, while the deck has been opened in the last 12 hours, refreshes the entries behind it shortly before they expire. `0` to stay idle until asked |
 | `HIKARI_TOKEN` | no | Shared secret required on the routes that change things. Generate one under Settings instead, once the login is on. See [Security](security.md) |
 | `HOST` | no | Bind address. Default `0.0.0.0`; use `127.0.0.1` for local-only |
 | `PORT` | no | Default `7997` |
@@ -55,6 +56,10 @@ Responses are cached in memory, so normal browsing serves in single-digit millis
 | Queue and torrents | 15 seconds | — |
 | Jellyseerr request state | 30 seconds | — |
 | Homepage counters | 1 minute | 2 minutes |
+
+On boot the Discover page is built before anyone asks for it, and while the deck is in use its
+entries are refreshed a few minutes before they would expire, so in practice the first column is
+what you see and the second is a safety net (`CACHE_WARM=0` turns this off).
 
 The third column is stale-while-revalidate: once the fresh window has passed, the next request is
 answered from the old value immediately and the refresh runs behind it, so the first open after a

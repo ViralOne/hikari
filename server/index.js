@@ -19,6 +19,7 @@ import * as shoko from "./shoko.js";
 import * as anilistList from "./anilist-list.js";
 import * as sequels from "./sequels.js";
 import * as autolink from "./autolink.js";
+import * as warm from "./warm.js";
 import * as reconcile from "./reconcile.js";
 import * as settings from "./settings.js";
 import * as auth from "./auth.js";
@@ -319,6 +320,13 @@ app.get("/api/health", async c => {
 });
 
 app.get("/api/discover", async c => {
+  warm.noteActivity();
+  return c.json(await buildDiscover());
+});
+
+// The Discover page as one object. Split from the route because the warmer calls it too: once on
+// boot so the first open answers from memory, and afterwards to keep the entries behind it fresh.
+async function buildDiscover() {
   const now = anilist.currentSeason();
   const next = anilist.shiftSeason(now, 1);
 
@@ -349,8 +357,8 @@ app.get("/api/discover", async c => {
     ].map(async row => ({ ...row, media: await annotate(row.media, problems) }))
   );
 
-  return c.json({ season: now, rows, errors: problems });
-});
+  return { season: now, rows, errors: problems };
+}
 
 // The same row Discover shows, on its own, so it can be polled or read without paying for the
 // other four rows.
@@ -942,6 +950,8 @@ app.post("/api/settings", async c => {
 
   // A newly enabled sweep should start without a restart, and a disabled one should stop.
   autolink.restart();
+  // The save emptied the cache; fill the Discover page back in before anyone opens it.
+  if (result.changed.length > 0) warm.rebuild();
 
   return c.json({ ok: true, ...result, ...settings.describe(), configured: settings.isConfigured() });
 });
@@ -1437,4 +1447,5 @@ serve({ fetch: app.fetch, port: config.port, hostname: config.host }, info => {
     );
   }
   autolink.start();
+  warm.start(buildDiscover);
 });
