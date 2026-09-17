@@ -20,6 +20,7 @@ import * as anilistList from "./anilist-list.js";
 import * as sequels from "./sequels.js";
 import * as autolink from "./autolink.js";
 import * as warm from "./warm.js";
+import * as hidden from "./hidden.js";
 import * as reconcile from "./reconcile.js";
 import * as settings from "./settings.js";
 import * as auth from "./auth.js";
@@ -164,6 +165,7 @@ app.use("/api/shoko/*", requireToken);
 app.use("/api/jellyfin/*", requireToken);
 app.use("/api/autolink", requireToken);
 app.use("/api/hooks/*", requireToken);
+app.use("/api/hidden/*", requireToken);
 app.use("/api/settings", requireToken);
 app.use("/api/settings/*", requireToken);
 
@@ -354,7 +356,7 @@ async function buildDiscover() {
       { id: "trending", title: "Trending this week", media: trending.media },
       { id: "upcoming", title: `Coming next · ${label(next)}`, media: upcoming.media },
       { id: "top", title: "Highest rated of all time", media: top.media }
-    ].map(async row => ({ ...row, media: await annotate(row.media, problems) }))
+    ].map(async row => ({ ...row, media: await annotate(hidden.filter(row.media), problems) }))
   );
 
   return { season: now, rows, errors: problems };
@@ -367,9 +369,21 @@ app.get("/api/sequels", async c => {
     return c.json({ configured: false, media: [], detail: "Needs an AniList token to read your list" });
   }
   const problems = {};
-  const media = await annotate(await sequels.sequels(), problems);
+  const media = await annotate(hidden.filter(await sequels.sequels()), problems);
   return c.json({ configured: true, media, errors: problems });
 });
+
+// "Not interested". Anyone signed in may hide a title; it is a view preference, not configuration,
+// so it is not behind the administrator gate the settings are.
+app.get("/api/hidden", c => c.json({ hidden: hidden.list() }));
+
+app.post("/api/hidden/:id", async c => {
+  const body = await c.req.json().catch(() => ({}));
+  const title = typeof body?.title === "string" ? body.title : "";
+  return c.json(hidden.hide(c.req.param("id"), title));
+});
+
+app.delete("/api/hidden/:id", c => c.json(hidden.show(c.req.param("id"))));
 
 app.get("/api/schedule", async c => {
   const requested = Number(c.req.query("days") ?? 7);
@@ -383,7 +397,7 @@ app.get("/api/schedule", async c => {
   const from = Math.floor(Date.now() / 1000 / bucket) * bucket - 3600;
   const to = from + days * 86400;
 
-  const items = await anilist.schedule(from, to);
+  const items = hidden.filter(await anilist.schedule(from, to), entry => entry.media);
   const problems = {};
   const annotated = await annotate(items.map(x => x.media), problems);
 
@@ -444,7 +458,8 @@ app.get("/api/anime/:id", async c => {
   const inspection = composed.inspection;
   const cours = inspection || narrowing ? { ...(inspection || {}), narrowing } : null;
 
-  return c.json({ ...composed.body, cours });
+  // Read live rather than composed: hiding is the one edit that must show on the very next read.
+  return c.json({ ...composed.body, cours, hidden: hidden.isHidden(id) });
 });
 
 async function composeAnime(id) {
@@ -1296,7 +1311,7 @@ function homepageSnapshot() {
       enabled.jellyseerr ? seerr.requests(25).catch(() => []) : []
     ]);
 
-    const airing = season ? await annotate(season.media).catch(() => season.media) : [];
+    const airing = season ? await annotate(hidden.filter(season.media)).catch(() => hidden.filter(season.media)) : [];
     const downloading = torrents.filter(torrent => torrent.active);
 
     return snapshotBody(now, airing, queue, downloading, requests);
@@ -1403,6 +1418,7 @@ async function describeRouting(request) {
 // under the wrong configuration would hand back answers from a service you just replaced.
 const settingsFile = settings.load();
 const authFile = auth.load();
+const hiddenFile = hidden.load();
 
 const restored = loadSnapshot();
 
@@ -1434,6 +1450,7 @@ serve({ fetch: app.fetch, port: config.port, hostname: config.host }, info => {
   }
   const snapshot = cacheStats().snapshot;
   if (snapshot) console.log(`[hikari]   cache snapshot ${snapshot} (${restored} entries restored)`);
+  if (hiddenFile.count > 0) console.log(`[hikari]   ${hiddenFile.count} hidden title${hiddenFile.count === 1 ? "" : "s"} (${hiddenFile.path})`);
   if (settingsFile.loaded) {
     console.log(`[hikari]   settings ${settingsFile.path} (${settingsFile.fields} overrides)`);
   } else if (!settings.isConfigured()) {

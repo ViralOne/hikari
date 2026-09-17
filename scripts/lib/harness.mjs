@@ -42,6 +42,7 @@ export async function startHikari({ env = {}, fakes, echo = false } = {}) {
       PORT: String(port),
       HOST: host,
       AUTH_FILE: join(dir, "auth.json"),
+      HIDDEN_FILE: join(dir, "hidden.json"),
       SETTINGS_FILE: join(dir, "settings.json"),
       CACHE_FILE: join(dir, "cache.json"),
 

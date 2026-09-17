@@ -2,7 +2,13 @@ import { For, Repeat, Show } from "solid-js";
 import type { Anime } from "../api";
 import { Card, CardSkeleton } from "./Card";
 
-export function Rail(props: { title: string; note?: string; media: Anime[]; onOpen: (id: number) => void }) {
+export function Rail(props: {
+  title: string;
+  note?: string;
+  media: Anime[];
+  onOpen: (id: number) => void;
+  onHide?: (anime: Anime) => void;
+}) {
   return (
     <section class="section">
       <div class="section-head">
@@ -10,7 +16,7 @@ export function Rail(props: { title: string; note?: string; media: Anime[]; onOp
         <Show when={props.note}>{note => <span class="section-note">{note()}</span>}</Show>
       </div>
       <div class="rail">
-        <For each={props.media}>{item => <Card anime={item} onOpen={props.onOpen} />}</For>
+        <For each={props.media}>{item => <Card anime={item} onOpen={props.onOpen} onHide={props.onHide} />}</For>
       </div>
     </section>
   );

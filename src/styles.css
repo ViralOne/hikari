@@ -540,6 +540,12 @@ select {
   padding: 5px 0;
 }
 
+.rows-hidden {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
 .rows-row.off .rows-name {
   color: var(--text-faint);
   text-decoration: line-through;
@@ -581,11 +587,44 @@ select {
 }
 
 .card {
+  position: relative;
+  min-width: 0;
+}
+
+/* The clickable face. The card was one button until it grew a hide control, which cannot nest. */
+.card-main {
   display: flex;
   flex-direction: column;
   gap: 8px;
   text-align: left;
   min-width: 0;
+  width: 100%;
+}
+
+/* "Not interested". Over the art's top-right corner, shown on hover or keyboard focus; the badge
+   cluster leaves that corner free (see .corner). Touch devices get it always, faintly. */
+.card-hide {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: #fff;
+  background: rgba(10, 10, 16, 0.62);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  opacity: 0;
+  transition: opacity 0.18s, background 0.18s;
+}
+.card:hover .card-hide,
+.card:focus-within .card-hide {
+  opacity: 1;
+}
+.card-hide:hover {
+  background: rgba(255, 95, 109, 0.85);
 }
 
 .card-art {
@@ -663,7 +702,8 @@ select {
   position: absolute;
   top: 8px;
   left: 8px;
-  right: 8px;
+  /* Leaves room for .card-hide. */
+  right: 40px;
   display: flex;
   gap: 5px;
   flex-wrap: wrap;
@@ -814,11 +854,11 @@ select {
   border-radius: 6px;
 }
 
-.card:focus-visible {
+.card-main:focus-visible {
   outline-offset: 4px;
 }
 
-.card:focus-visible .card-art {
+.card-main:focus-visible .card-art {
   transform: translateY(-4px);
   border-color: var(--accent);
 }
@@ -1678,6 +1718,9 @@ select.field {
   }
   .card:hover .card-art .scrim {
     opacity: 0;
+  }
+  .card-hide {
+    opacity: 0.7;
   }
   .nav-item:hover,
   .ep:hover,

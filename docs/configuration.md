@@ -33,6 +33,7 @@ Every variable goes in `.env`. Anything left blank disables its feature rather t
 | `AUTH_USERS` | no | Comma-separated allowlist. Blank allows any Jellyfin account |
 | `AUTH_FILE` | no | Where the session signing key lives. Default `/cache/hikari-auth.json` |
 | `SETTINGS_FILE` | no | Where settings saved in the app are written. Default `/cache/hikari-settings.json` |
+| `HIDDEN_FILE` | no | Where "not interested" titles are kept. Default `/cache/hikari-hidden.json` |
 | `CACHE_FILE` | no | Path for the cache snapshot, so a restart does not re-fetch AniList |
 | `CACHE_WARM` | no | Default on. Builds the Discover page on boot and, while the deck has been opened in the last 12 hours, refreshes the entries behind it shortly before they expire. `0` to stay idle until asked |
 | `HIKARI_TOKEN` | no | Shared secret required on the routes that change things. Generate one under Settings instead, once the login is on. See [Security](security.md) |

@@ -105,6 +105,7 @@ const server = spawn(process.execPath, ["server/index.js"], {
     PORT: String(PORT),
     HOST: "127.0.0.1",
     AUTH_FILE,
+    HIDDEN_FILE: join(dir, "hidden.json"),
     SETTINGS_FILE: join(dir, "live-settings.json"),
     CACHE_FILE: join(dir, "cache.json"),
     // Configured, not reachable. enabled.jellyfin is derived from the url and key being present,

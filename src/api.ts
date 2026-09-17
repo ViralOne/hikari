@@ -270,6 +270,8 @@ export type AnimeDetail = Anime & {
   shoko: ShokoInfo | null;
   movie: LibraryMatch | null;
   links: SeerrLinks;
+  /** "Not interested": hidden from Discover, the schedule and the Homepage widget. */
+  hidden: boolean;
 };
 
 export type DiscoverRow = { id: string; title: string; media: Anime[] };
@@ -475,6 +477,18 @@ export const getHealth = () => json<Health>("/api/health");
 export const getDiscover = () => json<Discover>("/api/discover");
 export const getSchedule = (days = 7) => json<Schedule>(`/api/schedule?days=${days}`);
 export const getAnime = (id: number) => json<AnimeDetail>(`/api/anime/${id}`);
+
+export type HiddenTitle = { id: number; title: string; at: number };
+export type HiddenChange = { id: number; hidden: boolean; count: number };
+export const getHidden = () => json<{ hidden: HiddenTitle[] }>("/api/hidden");
+export const hideAnime = (id: number, title: string) =>
+  json<HiddenChange>(`/api/hidden/${id}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title })
+  });
+export const showAnime = (id: number) =>
+  json<HiddenChange>(`/api/hidden/${id}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: "{}" });
 export const getActivity = () => json<Activity>("/api/activity");
 
 export function getSearch(params: Record<string, string>) {

@@ -233,6 +233,44 @@ try {
   check("Sonarr's connection test is answered", hook.status === 200 && hooked.ok === true && hooked.event === "Test", JSON.stringify(hooked));
 
   // -------------------------------------------------------------------------------------------
+  console.log("\nnot interested");
+
+  const hid = await hikari.call("/api/hidden/202", { method: "POST", body: { title: "Orbit Drift" } });
+  const hidBody = await readJson(hid);
+  check("hiding a title is accepted", hid.status === 200 && hidBody.hidden === true && hidBody.count === 1, `got ${hid.status} ${JSON.stringify(hidBody)}`);
+
+  const hiddenRows = await readJson(await hikari.call("/api/discover"));
+  check(
+    "it is gone from every Discover row, including Continue the story",
+    (hiddenRows.rows || []).every(row => !row.media.some(item => item.id === 202)),
+    (hiddenRows.rows || []).filter(row => row.media.some(item => item.id === 202)).map(row => row.id).join(",")
+  );
+  check("the other titles are untouched", (hiddenRows.rows || []).find(row => row.id === "airing")?.media.some(item => item.id === 101) === true);
+
+  const hiddenSchedule = await readJson(await hikari.call("/api/schedule?days=14"));
+  check("and from the schedule", Array.isArray(hiddenSchedule.items) && !hiddenSchedule.items.some(item => item.media?.id === 202));
+
+  const stillSearchable = await readJson(await hikari.call("/api/search?q=orbit"));
+  check("but search still finds it", (stillSearchable.media || []).some(item => item.id === 202), JSON.stringify((stillSearchable.media || []).map(item => item.id)));
+
+  const flagged = await readJson(await hikari.call("/api/anime/202"));
+  check("and the detail says so", flagged.hidden === true);
+
+  const listed2 = await readJson(await hikari.call("/api/hidden"));
+  check("the hidden list carries the title for the editor", listed2.hidden?.[0]?.id === 202 && listed2.hidden[0].title === "Orbit Drift", JSON.stringify(listed2));
+
+  const badHide = await hikari.call("/api/hidden/abc", { method: "POST", body: {} });
+  check("a non-numeric id is refused", badHide.status === 400, `got ${badHide.status}`);
+
+  const shown = await readJson(await hikari.call("/api/hidden/202", { method: "DELETE", body: {} }));
+  const back = await readJson(await hikari.call("/api/discover"));
+  check(
+    "bringing it back puts it in the rows again",
+    shown.hidden === false && (back.rows || []).find(row => row.id === "continuing")?.media.some(item => item.id === 202) === true
+  );
+  check("and the detail flag clears", (await readJson(await hikari.call("/api/anime/202"))).hidden === false);
+
+  // -------------------------------------------------------------------------------------------
   console.log("\nwarm-up");
 
   // The boot warm-up runs detached, so give it a moment before reading the log.

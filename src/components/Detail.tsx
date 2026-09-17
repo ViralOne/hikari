@@ -3,6 +3,8 @@ import {
   ANILIST_STATUSES,
   getAnime,
   getList,
+  hideAnime,
+  showAnime,
   linkAllShokoFiles,
   linkShokoFile,
   markJellyfinPlayed,
@@ -112,6 +114,26 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
       const { [props.id]: _dropped, ...rest } = prev;
       return rest;
     });
+  };
+
+  const toggleHidden = async (id: number, title: string, hidden: boolean) => {
+    setBusy(true);
+    try {
+      await (hidden ? showAnime(id) : hideAnime(id, title));
+      setOutcomes(prev => ({
+        ...prev,
+        [id]: {
+          ok: true,
+          message: hidden ? "Back in Discover and the schedule." : "Hidden from Discover, the schedule and the Homepage widget."
+        }
+      }));
+      // Refetches the panel (which reads the flag live) and the rows behind it.
+      props.onRequested();
+    } catch (err) {
+      setOutcomes(prev => ({ ...prev, [id]: { ok: false, message: (err as Error).message } }));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const fixSeriesType = async (seriesId: number) => {
@@ -1510,6 +1532,18 @@ export function Detail(props: { id: number; token: number; onClose: () => void; 
                         </a>
                       )}
                     </Show>
+                    {/* "Not interested" from the panel too: the eye on the card is hover-only, and this is
+                        also the one place a hidden title can be found again (search still shows it). */}
+                    <button
+                      class={["btn ghost tiny", { active: anime().hidden }]}
+                      onClick={() => toggleHidden(anime().id, anime().title.display, anime().hidden)}
+                      disabled={busy()}
+                      aria-pressed={anime().hidden ? "true" : "false"}
+                      title={anime().hidden ? "Show in Discover and the schedule again" : "Hide from Discover, the schedule and the Homepage widget"}
+                    >
+                      <Icon name={anime().hidden ? "eye" : "eye-off"} size={14} />
+                      {anime().hidden ? "Hidden" : "Not interested"}
+                    </button>
                   </div>
                 </div>
               </>

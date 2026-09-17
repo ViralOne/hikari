@@ -2,8 +2,9 @@ import { Show } from "solid-js";
 import type { Anime } from "../api";
 import { countdown, formatLabel, seasonLabel, statusLabel } from "../format";
 import { LibraryBadge, ScoreBadge, WatchBadge, WatchBar } from "./Badges";
+import { Icon } from "./Icon";
 
-export function Card(props: { anime: Anime; onOpen: (id: number) => void }) {
+export function Card(props: { anime: Anime; onOpen: (id: number) => void; onHide?: (anime: Anime) => void }) {
   // Without an explicit label the accessible name is the concatenation of every badge and
   // hover-only line, e.g. "In library84%Studio BindTV · 14 epEp 12 in 5h 1mMushoku Tensei…".
   const label = () => {
@@ -37,59 +38,83 @@ export function Card(props: { anime: Anime; onOpen: (id: number) => void }) {
       ? seasonLabel(props.anime.season, props.anime.seasonYear)
       : statusLabel(props.anime.status);
 
+  // The card used to be one <button>. A hide control cannot live inside a button, so the outer
+  // element is now a plain wrapper and the whole clickable face is `.card-main`; the hide button is
+  // its sibling, placed over the art's corner. Hover and focus styling keys off `.card`, so nothing
+  // visual changed for cards without a hide handler.
   return (
-    <button class="card" onClick={() => props.onOpen(props.anime.id)} aria-label={label()}>
-      <div class="card-art" aria-hidden="true">
-        <Show when={props.anime.cover} fallback={<div class="skeleton" style={{ height: "100%" }} />}>
-          {cover => <img src={cover()} alt="" loading="lazy" decoding="async" />}
-        </Show>
+    <div class="card">
+      <button class="card-main" onClick={() => props.onOpen(props.anime.id)} aria-label={label()}>
+        <div class="card-art" aria-hidden="true">
+          <Show when={props.anime.cover} fallback={<div class="skeleton" style={{ height: "100%" }} />}>
+            {cover => <img src={cover()} alt="" loading="lazy" decoding="async" />}
+          </Show>
 
-        <div class="corner">
-          <WatchBadge watch={props.anime.watch} />
-          <LibraryBadge library={props.anime.library} />
-          <ScoreBadge score={props.anime.score} />
-        </div>
+          <div class="corner">
+            <WatchBadge watch={props.anime.watch} />
+            <LibraryBadge library={props.anime.library} />
+            <ScoreBadge score={props.anime.score} />
+          </div>
 
-        <WatchBar watch={props.anime.watch} />
+          <WatchBar watch={props.anime.watch} />
 
-        <div class="scrim">
-          <div class="card-hover-meta">
-            <Show when={props.anime.studio}>{studio => <div>{studio()}</div>}</Show>
-            <div>
-              {formatLabel(props.anime.format)}
-              <Show when={props.anime.episodes}>{count => <> · {count()} ep</>}</Show>
+          <div class="scrim">
+            <div class="card-hover-meta">
+              <Show when={props.anime.studio}>{studio => <div>{studio()}</div>}</Show>
+              <div>
+                {formatLabel(props.anime.format)}
+                <Show when={props.anime.episodes}>{count => <> · {count()} ep</>}</Show>
+              </div>
+              <Show when={props.anime.nextEpisode}>
+                {next => (
+                  <div>
+                    Ep {next().episode} in {countdown(next().timeUntil)}
+                  </div>
+                )}
+              </Show>
             </div>
-            <Show when={props.anime.nextEpisode}>
-              {next => (
-                <div>
-                  Ep {next().episode} in {countdown(next().timeUntil)}
-                </div>
-              )}
-            </Show>
           </div>
         </div>
-      </div>
 
-      <div aria-hidden="true">
-        <div class="card-title">{props.anime.title.display}</div>
-        <div class="card-sub">{when()}</div>
-        <Show when={props.anime.because}>
-          {because => (
-            <div class="card-because" title={`Sequel to ${because().title}`}>
-              {reason()}
-            </div>
-          )}
-        </Show>
-      </div>
-    </button>
+        <div aria-hidden="true">
+          <div class="card-title">{props.anime.title.display}</div>
+          <div class="card-sub">{when()}</div>
+          <Show when={props.anime.because}>
+            {because => (
+              <div class="card-because" title={`Sequel to ${because().title}`}>
+                {reason()}
+              </div>
+            )}
+          </Show>
+        </div>
+      </button>
+
+      <Show when={props.onHide}>
+        {onHide => (
+          <button
+            class="card-hide"
+            onClick={event => {
+              event.stopPropagation();
+              onHide()(props.anime);
+            }}
+            aria-label={`Not interested in ${props.anime.title.display}`}
+            title="Not interested"
+          >
+            <Icon name="eye-off" size={14} />
+          </button>
+        )}
+      </Show>
+    </div>
   );
 }
 
 export function CardSkeleton() {
   return (
     <div class="card">
-      <div class="skeleton skel-card" />
-      <div class="skeleton" style={{ height: "12px", width: "80%" }} />
+      <div class="card-main">
+        <div class="skeleton skel-card" />
+        <div class="skeleton" style={{ height: "12px", width: "80%" }} />
+      </div>
     </div>
   );
 }

@@ -380,7 +380,7 @@ export function App() {
               />
             </Match>
             <Match when={view() === "discover"}>
-              <Discover token={token()} onOpen={setSelected} />
+              <Discover token={token()} onOpen={setSelected} onChanged={refresh} />
             </Match>
             <Match when={view() === "schedule"}>
               <Schedule token={token()} onOpen={setSelected} />
