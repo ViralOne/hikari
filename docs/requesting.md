@@ -107,6 +107,23 @@ a chain appears, so finishing season one surfaces season two and not season thre
 Needs `ANILIST_TOKEN`. Without it the row does not appear. Cached for 30 minutes, and cleared as soon
 as you change a list entry from inside Hikari.
 
+## Ready to start
+
+The plan list is where good intentions go to be forgotten. This row is the part of your AniList
+**Planning** list that has stopped being an intention: every episode is already in your library
+(Sonarr reports the series complete, or Jellyfin holds as many episodes as AniList counts), or the
+show has finished airing so there is nothing left to wait for. Each card says which.
+
+"In your library" trusts Sonarr's and Radarr's own completeness, or Jellyfin's episode count when the
+match is by AniList or AniDB id; a Jellyfin match by title alone is not trusted for the count, since it
+may be a whole multi-season series. Owned titles come first, because starting one costs nothing; then
+the most recently planned (the 60 most recent plan entries are considered). Anything
+you have already begun in Jellyfin is left out, since it belongs to your progress rather than to a
+list of things to start. Titles still airing with episodes missing are not ready and do not appear.
+
+Needs `ANILIST_TOKEN`, like Continue the story. Cached for 30 minutes and cleared as soon as you
+change a list entry from inside Hikari.
+
 ## Choosing which rows you see
 
 The **Rows** button above the rails hides rows you do not use and moves the ones you do to the top.

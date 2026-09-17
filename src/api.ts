@@ -89,6 +89,8 @@ export type Anime = {
   watch?: Watch | null;
   list?: ListEntry | null;
   shoko?: ShokoInfo | null;
+  /** One line under the title with the row's reason for showing this, e.g. "Finished airing". */
+  note?: string;
   /** Only on the "Continue the story" row: which of your finished shows this follows. */
   because?: { id: number; title: string; score: number; status: string } | null;
 };

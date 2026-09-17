@@ -28,6 +28,7 @@ const ACTIVE_FOR_MS = 12 * 60 * 60 * 1000;
 const PREFIXES = [
   "anilist:discover:",
   "anilist:sequels",
+  "anilist:planning",
   "anilist:list",
   "anilist:viewer",
   "jellyfin:series",

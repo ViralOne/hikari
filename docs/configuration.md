@@ -19,7 +19,7 @@ Every variable goes in `.env`. Anything left blank disables its feature rather t
 | `QBIT_USER` | no | qBittorrent username |
 | `QBIT_PASS` | no | qBittorrent password |
 | `ANIME_ROOT` | no | Library path used to recognise a torrent as anime. Default `/data/anime` |
-| `ANILIST_TOKEN` | no | AniList token. Discovery works without one; this adds your list status and progress, and the **Continue the story** row |
+| `ANILIST_TOKEN` | no | AniList token. Discovery works without one; this adds your list status and progress, and the **Continue the story** and **Ready to start** rows |
 | `ANILIST_ALLOW_WRITES` | no | Default `false`. Set `true` to let Hikari change your AniList status and progress |
 | `AUTO_LINK` | no | Default `false`. Links files Shoko hashed but AniDB never matched, on a timer |
 | `AUTO_LINK_INTERVAL_MINUTES` | no | Default 60, minimum 5 |
@@ -48,6 +48,7 @@ Responses are cached in memory, so normal browsing serves in single-digit millis
 | --- | --- | --- |
 | Discover rows | 10 minutes | 30 minutes |
 | Continue the story | 30 minutes | 30 minutes |
+| Ready to start | 30 minutes | 30 minutes |
 | Airing schedule | 15 minutes | 45 minutes |
 | Anime detail (AniList) | 1 hour | 1 hour |
 | All-time top chart | 6 hours | 18 hours |

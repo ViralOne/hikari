@@ -126,5 +126,6 @@ export async function saveEntry({ mediaId, status, progress, score }) {
   invalidate("anilist:list");
   // Adding something to the list means it is no longer a discovery, so the sequel row is stale too.
   invalidate("anilist:sequels");
+  invalidate("anilist:planning");
   return data.SaveMediaListEntry;
 }

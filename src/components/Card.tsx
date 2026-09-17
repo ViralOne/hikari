@@ -19,6 +19,7 @@ export function Card(props: { anime: Anime; onOpen: (id: number) => void; onHide
       parts.push("in library");
     }
     if (props.anime.because) parts.push(`sequel to ${props.anime.because.title}`);
+    if (props.anime.note) parts.push(props.anime.note.toLowerCase());
     return parts.join(", ");
   };
 
@@ -86,6 +87,8 @@ export function Card(props: { anime: Anime; onOpen: (id: number) => void; onHide
               </div>
             )}
           </Show>
+          {/* The "Ready to start" row says why a planned title is ready, in the same slot. */}
+          <Show when={!props.anime.because && props.anime.note}>{note => <div class="card-because">{note()}</div>}</Show>
         </div>
       </button>
 

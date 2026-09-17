@@ -63,7 +63,7 @@ try {
   const discover = await readJson(await hikari.call("/api/discover"));
   const rowIds = (discover.rows || []).map(row => row.id);
   check(
-    "the five rows are present",
+    "the six rows are present",
     ["airing", "trending", "upcoming", "top", "continuing"].every(id => rowIds.includes(id)),
     rowIds.join(",")
   );
@@ -90,6 +90,17 @@ try {
     "202 is suggested as the sequel of the film that was finished",
     suggested?.because?.id === 303,
     JSON.stringify(suggested?.because)
+  );
+
+  // 202 is on the plan and has finished airing with nothing on disk: ready because there is nothing
+  // left to wait for. 101 is CURRENT, not PLANNING, so it must not be here however ready it looks.
+  const planningRow = (discover.rows || []).find(row => row.id === "planning");
+  const plannedOrbit = planningRow?.media.find(item => item.id === 202);
+  check("202 is in Ready to start because it has finished airing", plannedOrbit?.note === "Finished airing", JSON.stringify(plannedOrbit?.ready));
+  check(
+    "and the row holds only planned titles: not the one being watched, nor the completed film",
+    planningRow?.media.every(item => item.id !== 101 && item.id !== 303) === true,
+    JSON.stringify(planningRow?.media.map(item => item.id))
   );
 
   // -------------------------------------------------------------------------------------------

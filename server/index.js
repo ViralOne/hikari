@@ -18,6 +18,7 @@ import * as radarr from "./radarr.js";
 import * as shoko from "./shoko.js";
 import * as anilistList from "./anilist-list.js";
 import * as sequels from "./sequels.js";
+import * as planning from "./planning.js";
 import * as autolink from "./autolink.js";
 import * as warm from "./warm.js";
 import * as hidden from "./hidden.js";
@@ -334,7 +335,7 @@ async function buildDiscover() {
 
   const problems = {};
 
-  const [airing, trending, upcoming, top, continuing] = await Promise.all([
+  const [airing, trending, upcoming, top, continuing, plannedMedia] = await Promise.all([
     anilist.page({ season: now.season, seasonYear: now.year, sort: ["POPULARITY_DESC"], perPage: 30 }, undefined, { persist: true }),
     anilist.page({ sort: ["TRENDING_DESC"], perPage: 30 }, undefined, { persist: true }),
     anilist.page({ season: next.season, seasonYear: next.year, sort: ["POPULARITY_DESC"], perPage: 30 }, undefined, { persist: true }),
@@ -342,6 +343,10 @@ async function buildDiscover() {
     // Needs your list, so it is empty without a token, and a failure here must not cost you the
     // whole page: the other four rows do not depend on it.
     sequels.sequels().catch(err => {
+      problems.anilistList = err.message;
+      return [];
+    }),
+    planning.planned().catch(err => {
       problems.anilistList = err.message;
       return [];
     })
@@ -352,11 +357,17 @@ async function buildDiscover() {
       // First when there is anything in it. A sequel to something you finished beats anything a
       // popularity sort can offer, which is the whole reason the row exists.
       { id: "continuing", title: "Continue the story", media: continuing },
+      // Which planned titles are ready depends on the library, so this row is filtered after
+      // annotate rather than before like the others.
+      { id: "planning", title: "Ready to start", media: plannedMedia, ready: true },
       { id: "airing", title: `Airing now · ${label(now)}`, media: airing.media },
       { id: "trending", title: "Trending this week", media: trending.media },
       { id: "upcoming", title: `Coming next · ${label(next)}`, media: upcoming.media },
       { id: "top", title: "Highest rated of all time", media: top.media }
-    ].map(async row => ({ ...row, media: await annotate(hidden.filter(row.media), problems) }))
+    ].map(async ({ ready, ...row }) => {
+      const annotated = await annotate(hidden.filter(row.media), problems);
+      return { ...row, media: ready ? planning.readyToStart(annotated) : annotated };
+    })
   );
 
   return { season: now, rows, errors: problems };

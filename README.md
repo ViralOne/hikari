@@ -18,6 +18,7 @@
 
 - Discover what is airing this season, trending, coming next and the all-time top, every card badged from your real library
 - **Continue the story**: sequels to what you have actually finished, taken from your AniList list and ordered by how you rated the show before it
+- **Ready to start**: what is on your AniList plan that you could begin tonight, because the whole run is in your library or it has finished airing
 - Rows you can reorder and hide, so the deck opens on whatever you use
 - **Not interested** on any card: the title leaves every row, the schedule and the Homepage widget, on every device, until you bring it back
 - An airing schedule for the next 3, 7 or 14 days, filterable to just the shows you follow
