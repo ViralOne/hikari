@@ -26,6 +26,7 @@ const PERSIST_PREFIXES = [
   "anilist:media:",
   "anilist:schedule:",
   "anilist:prequel-depth:",
+  "anilist:franchise:",
   "anilist:discover:"
 ];
 const PERSIST_DENY = ["\"search\":"];

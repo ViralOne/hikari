@@ -132,6 +132,35 @@ export function defaultScenario() {
     siteUrl: "https://anilist.co/anime/303"
   };
 
+  // 104 is the announced second season of 101: a TV SEQUEL edge, which is what the franchise strip
+  // follows. It is nobody's prequel target in a way that matters -- prequelDepth(101) walks PREQUEL
+  // edges only, so 101's cour logic is untouched -- and it is on no list and in no library.
+  const frontierTwo = {
+    id: 104,
+    idMal: 5004,
+    title: { romaji: "Frontier Saga 2nd Season", english: "Frontier Saga Season 2", native: "フロンティア・サーガ 2" },
+    description: "The survey continues.",
+    coverImage: { extraLarge: null, large: "https://s4.anilist.co/fake/104.jpg", color: null },
+    bannerImage: null,
+    format: "TV",
+    status: "NOT_YET_RELEASED",
+    episodes: null,
+    duration: null,
+    season: null,
+    seasonYear: null,
+    genres: ["Adventure"],
+    averageScore: null,
+    popularity: 900,
+    startDate: { year: 2027, month: null, day: null },
+    isAdult: false,
+    nextAiringEpisode: null,
+    studios: { nodes: [{ name: "Fake Studio" }] },
+    relations: { edges: [] },
+    siteUrl: "https://anilist.co/anime/104"
+  };
+  frontierTwo.relations = { edges: [{ relationType: "PREQUEL", node: relationNode(frontier) }] };
+  frontier.relations = { edges: [{ relationType: "SEQUEL", node: relationNode(frontierTwo) }] };
+
   const seriesFolder = "Frontier Saga";
   const episodeFile = n => `Season 1/Frontier Saga - S01E${String(n).padStart(2, "0")}.mkv`;
 
@@ -139,7 +168,7 @@ export function defaultScenario() {
     anilist: {
       viewer: { id: 1, name: "tester", siteUrl: "https://anilist.co/user/tester" },
       // Keyed by id so a test can add or edit an entry without touching the arrays below.
-      media: { 101: frontier, 202: orbit, 303: classic },
+      media: { 101: frontier, 104: frontierTwo, 202: orbit, 303: classic },
       // What every Page query returns, whatever it was sorted or filtered by. The discover rows only
       // need something to annotate; the test does not check ordering.
       page: [101, 202],

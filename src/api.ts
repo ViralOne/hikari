@@ -262,6 +262,23 @@ export type Cours = {
   } | null;
 };
 
+/** One season of the broadcast chain a title sits in, badged from the library like a card. */
+export type FranchiseEntry = {
+  id: number;
+  title: Anime["title"];
+  cover: string | null;
+  format: string | null;
+  status: string | null;
+  episodes: number | null;
+  season: string | null;
+  seasonYear: number | null;
+  library: LibraryMatch | null;
+  movie: LibraryMatch | null;
+  watch: Watch | null;
+  list: ListEntry | null;
+  current: boolean;
+};
+
 export type AnimeDetail = Anime & {
   library: LibraryMatch | null;
   request: RequestMatch | null;
@@ -274,6 +291,8 @@ export type AnimeDetail = Anime & {
   links: SeerrLinks;
   /** "Not interested": hidden from Discover, the schedule and the Homepage widget. */
   hidden: boolean;
+  /** The seasons before and after this one, earliest first; null when it stands alone. */
+  franchise: FranchiseEntry[] | null;
 };
 
 export type DiscoverRow = { id: string; title: string; media: Anime[] };

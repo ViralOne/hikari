@@ -128,12 +128,32 @@ try {
     typeof detail.links?.media === "string" && detail.links.media.endsWith("/tv/60001"),
     detail.links?.media
   );
+  check(
+    "the franchise strip lists this season and the announced sequel, in order; the unaired one carries no library badge",
+    Array.isArray(detail.franchise) &&
+      detail.franchise.map(entry => entry.id).join(",") === "101,104" &&
+      detail.franchise[0].current === true &&
+      detail.franchise[0].library?.id === 7 &&
+      detail.franchise[1].current === false &&
+      detail.franchise[1].library === null,
+    JSON.stringify(detail.franchise?.map(entry => ({ id: entry.id, current: entry.current, library: entry.library?.id ?? null })))
+  );
+
   // One TMDB season and one Sonarr season that the AniList entry covers whole: nothing to narrow.
   check("no cour correction is proposed for a plain single-season show", detail.cours === null, JSON.stringify(detail.cours));
 
   const unowned = await readJson(await hikari.call("/api/anime/202"));
   check("202 resolves in Jellyseerr", unowned.request?.matched === true && unowned.request?.tmdbId === 60002);
   check("but is in no library", unowned.library === null && unowned.watch === null && unowned.shoko === null);
+  // Its only relation is a film, and films are not seasons, so there is no chain to draw.
+  check("a title whose only relation is a film has no franchise strip", unowned.franchise === null, JSON.stringify(unowned.franchise));
+
+  const sequelDetail = await readJson(await hikari.call("/api/anime/104"));
+  check(
+    "opened from the strip, the sequel shows the same chain with itself marked",
+    sequelDetail.franchise?.map(entry => `${entry.id}${entry.current ? "*" : ""}`).join(",") === "101,104*",
+    JSON.stringify(sequelDetail.franchise?.map(entry => entry.id))
+  );
   check(
     "TMDB has no anime keyword on it, so routing says an override is needed",
     unowned.routing?.treatedAsAnime === false && unowned.routing?.overridden === true,

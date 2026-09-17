@@ -285,6 +285,48 @@ export function prequelDepth(anilistId) {
   return cached(`anilist:prequel-depth:${id}`, 24 * 60 * 60 * 1000, () => walkPrequels(id), { staleFor: 24 * 60 * 60 * 1000 });
 }
 
+// The broadcast chain this title sits in, earliest season first, as AniList ids. Same rules as
+// prequelDepth (TV continuations only, earliest start wins a split) walked in both directions, so
+// the panel can show where in the story a title falls and what of it is already in the library.
+// A hop that fails fails the walk: a half-walked chain cached for a day would be a confident wrong
+// answer, so the strip is skipped this once and the next open tries again.
+export function franchise(anilistId) {
+  const id = Number(anilistId);
+  if (!Number.isInteger(id) || id <= 0) return Promise.resolve([id]);
+  return cached(`anilist:franchise:${id}`, 24 * 60 * 60 * 1000, () => walkChain(id), { staleFor: 24 * 60 * 60 * 1000 });
+}
+
+async function chainNeighbours(id) {
+  const data = await gql(CHAIN_QUERY, { id });
+  const edges = (data?.Media?.relations?.edges || []).filter(edge => CHAIN_FORMATS.has(edge.node?.format) && edge.node?.id);
+  // Year, then month, then day; a missing part sorts last, as an unannounced date should.
+  const stamp = node => (node.startDate?.year ?? 9999) * 10000 + (node.startDate?.month ?? 99) * 100 + (node.startDate?.day ?? 99);
+  const byStart = (a, b) => stamp(a) - stamp(b);
+  return {
+    prequels: edges.filter(edge => edge.relationType === "PREQUEL").map(edge => edge.node).sort(byStart),
+    sequels: edges.filter(edge => edge.relationType === "SEQUEL").map(edge => edge.node).sort(byStart)
+  };
+}
+
+async function walkChain(startId) {
+  const seen = new Set([startId]);
+  const before = [];
+  const after = [];
+
+  for (const [direction, out] of [["prequels", before], ["sequels", after]]) {
+    let current = startId;
+    for (let hop = 0; hop < MAX_CHAIN_HOPS; hop += 1) {
+      const next = (await chainNeighbours(current))[direction].find(node => !seen.has(node.id));
+      if (!next) break;
+      seen.add(next.id);
+      out.push(next.id);
+      current = next.id;
+    }
+  }
+
+  return [...before.reverse(), startId, ...after];
+}
+
 async function walkPrequels(startId) {
   const seen = new Set([startId]);
   let current = startId;

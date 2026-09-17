@@ -1042,6 +1042,101 @@ select.field {
   gap: 6px;
 }
 
+/* The franchise strip in the detail panel: a small horizontal rail of the seasons around this one.
+   Sized so four fit the panel; the current season is marked and not clickable. */
+.franchise {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.franchise-count {
+  margin-left: 8px;
+  color: var(--text-faint);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.franchise-rail {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 92px;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 2px 2px 8px;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+}
+
+.franchise-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  text-align: left;
+  min-width: 0;
+  scroll-snap-align: start;
+  border-radius: 10px;
+}
+.franchise-entry:disabled {
+  cursor: default;
+}
+
+.franchise-art {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  transition: border-color 0.18s, transform 0.18s;
+}
+.franchise-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.franchise-art .corner {
+  top: 5px;
+  left: 5px;
+  right: 5px;
+  gap: 3px;
+}
+.franchise-art .badge {
+  font-size: 9px;
+  padding: 1px 5px;
+}
+.franchise-entry:not(:disabled):hover .franchise-art {
+  border-color: var(--border-hi);
+  transform: translateY(-2px);
+}
+.franchise-entry.current .franchise-art {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.franchise-title {
+  font-size: 11.5px;
+  font-weight: 520;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.franchise-entry.current .franchise-title {
+  color: var(--accent);
+}
+
+.franchise-sub {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .chip {
   font-size: 11.5px;
   padding: 3px 9px;

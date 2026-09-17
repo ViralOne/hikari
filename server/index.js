@@ -484,11 +484,12 @@ async function composeAnime(id) {
 
   // Sonarr's match only needs shokoInfo, so it joins the fan-out rather than holding a round trip
   // of its own in front of it.
-  const [library, movie, listEntry, files] = await Promise.all([
+  const [library, movie, listEntry, files, franchise] = await Promise.all([
     sonarr.findMatch(anime, shokoInfo).catch(() => null),
     radarr.findMatch(anime, request?.tmdbId).catch(() => null),
     anilistList.entryFor(anime.id).catch(() => null),
-    shokoInfo ? shoko.fileDetail(shokoInfo.shokoId).catch(() => null) : Promise.resolve(null)
+    shokoInfo ? shoko.fileDetail(shokoInfo.shokoId).catch(() => null) : Promise.resolve(null),
+    franchiseStrip(anime).catch(() => null)
   ]);
 
   const [report, routing, watch, inspection] = await Promise.all([
@@ -517,10 +518,46 @@ async function composeAnime(id) {
       list: listEntry,
       request,
       routing,
+      franchise,
       watch: watch ? { ...watch, episodes } : null,
       links: seerr.links(anime, request)
     }
   };
+}
+
+// The broadcast chain around a title, each season badged from the library like a card. Null when
+// the title stands alone, so the panel has nothing to draw. The chain walk is cached for a day and
+// the media come from the shared byIds cache; only the badges are computed here.
+async function franchiseStrip(anime) {
+  const ids = await anilist.franchise(anime.id);
+  if (!ids || ids.length < 2) return null;
+
+  const media = await anilist.byIds(ids);
+  const byId = new Map(media.filter(Boolean).map(item => [item.id, item]));
+  const ordered = ids.map(id => byId.get(id)).filter(Boolean);
+  const annotated = await annotate(ordered);
+
+  return annotated.map(item => {
+    // A season that has not aired cannot be on disk. The title matcher will happily map "2nd Season"
+    // onto the Sonarr series that holds season one, and a "4/12 eps" badge on an announcement is a
+    // lie, so unaired entries carry no library state at all.
+    const unaired = item.status === "NOT_YET_RELEASED";
+    return {
+      id: item.id,
+      title: item.title,
+      cover: item.cover,
+      format: item.format,
+      status: item.status,
+      episodes: item.episodes,
+      season: item.season,
+      seasonYear: item.seasonYear,
+      library: unaired ? null : item.library,
+      movie: unaired ? null : item.movie,
+      watch: unaired ? null : item.watch,
+      list: item.list,
+      current: item.id === anime.id
+    };
+  });
 }
 
 app.post("/api/request", async c => {

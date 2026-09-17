@@ -427,6 +427,7 @@ export function App() {
                 token={token()}
                 onClose={() => setSelected(null)}
                 onRequested={refresh}
+                onOpen={setSelected}
               />
             </Loading>
           </Errored>

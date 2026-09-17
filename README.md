@@ -22,6 +22,7 @@
 - Rows you can reorder and hide, so the deck opens on whatever you use
 - **Not interested** on any card: the title leaves every row, the schedule and the Homepage widget, on every device, until you bring it back
 - An airing schedule for the next 3, 7 or 14 days, filterable to just the shows you follow
+- **The story so far**: the seasons before and after the one you opened, each badged from your library, one tap apart
 - Watch progress from Jellyfin: episodes watched, what is up next, and how many have aired but are not downloaded
 - Requests through Jellyseerr with the correct season worked out for you, and duplicates made impossible
 - Anime quality profile and root folder applied explicitly, because TMDB's anime keyword is missing on plenty of anime
