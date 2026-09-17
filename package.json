@@ -1,6 +1,6 @@
 {
   "name": "hikari",
-  "version": "0.5.8",
+  "version": "0.5.9",
   "private": true,
   "type": "module",
   "description": "Anime discovery deck that requests through Jellyseerr",
@@ -10,8 +10,8 @@
     "build": "vite build",
     "start": "NODE_ENV=production node server/index.js",
     "check": "tsc --noEmit",
-    "test": "node scripts/test-auth.mjs && node scripts/test-token.mjs && node scripts/test-ratelimit.mjs && node scripts/test-cache.mjs && node scripts/test-metrics.mjs && node scripts/test-sequels.mjs && node scripts/test-planning.mjs && node scripts/test-scrobble.mjs && node --experimental-strip-types scripts/test-rows.mjs && node scripts/test-autolink.mjs && node scripts/test-requests.mjs && node scripts/test-cours.mjs && node scripts/test-match.mjs && node scripts/test-integration.mjs",
-    "test:unit": "node scripts/test-auth.mjs && node scripts/test-token.mjs && node scripts/test-ratelimit.mjs && node scripts/test-cache.mjs && node scripts/test-metrics.mjs && node scripts/test-sequels.mjs && node scripts/test-planning.mjs && node scripts/test-scrobble.mjs && node --experimental-strip-types scripts/test-rows.mjs && node scripts/test-autolink.mjs && node scripts/test-requests.mjs && node scripts/test-cours.mjs --unit-only && node scripts/test-match.mjs --unit-only",
+    "test": "node scripts/test-auth.mjs && node scripts/test-token.mjs && node scripts/test-ratelimit.mjs && node scripts/test-cache.mjs && node scripts/test-metrics.mjs && node scripts/test-sequels.mjs && node scripts/test-planning.mjs && node scripts/test-scrobble.mjs && node scripts/test-numbering.mjs && node --experimental-strip-types scripts/test-rows.mjs && node scripts/test-autolink.mjs && node scripts/test-requests.mjs && node scripts/test-cours.mjs && node scripts/test-match.mjs && node scripts/test-integration.mjs",
+    "test:unit": "node scripts/test-auth.mjs && node scripts/test-token.mjs && node scripts/test-ratelimit.mjs && node scripts/test-cache.mjs && node scripts/test-metrics.mjs && node scripts/test-sequels.mjs && node scripts/test-planning.mjs && node scripts/test-scrobble.mjs && node scripts/test-numbering.mjs && node --experimental-strip-types scripts/test-rows.mjs && node scripts/test-autolink.mjs && node scripts/test-requests.mjs && node scripts/test-cours.mjs --unit-only && node scripts/test-match.mjs --unit-only",
     "test:integration": "node scripts/test-integration.mjs",
     "dev:fakes": "node scripts/fake-stack.mjs",
     "fixtures": "node --env-file-if-exists=.env scripts/build-match-fixtures.mjs",

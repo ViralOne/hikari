@@ -7,8 +7,9 @@ import { config, enabled } from "./config.js";
 
 // Jellyfin's Webhook plugin telling Hikari an episode was finished, turned into AniList progress.
 // The same two pieces the "mark played" button already relies on, run the other way round: the
-// Jellyfin series is mapped to exactly one AniList entry, and the episode's position in that
-// series becomes the progress.
+// Jellyfin series is mapped to exactly one AniList entry, and the episode is read as a number that
+// entry counts (see numbersAsProgress in jellyfin.js for when that is its own number and when it
+// falls back to its position in the run).
 //
 // It refuses rather than guesses. Only a series scoped to one AniList entry is written -- a
 // Shokofin item carrying an AniList or AniDB id -- because a series matched by TvDB id or title can
@@ -144,12 +145,11 @@ async function scrobble(payload, base) {
   // The play just happened, so whatever Jellyfin progress is cached is already wrong.
   invalidate("jellyfin:");
   const items = await jellyfin.episodeItems([payload.seriesId]);
-  const position = items.findIndex(item => item.id === payload.itemId) + 1;
-  if (position === 0) return { ok: true, ...base, anilistId: anime.id, ignored: true, reason: "episode-not-in-series-run" };
-
-  // Position, not episode number: absolute numbering and split cours make "episode 8" ambiguous,
-  // "the eighth of this item" is not. Capped by AniList's count so a stray special cannot overshoot.
-  const progress = anime.episodes ? Math.min(position, anime.episodes) : position;
+  // The item's own episode number where it can be read as AniList's, its position in the run where
+  // it cannot. Position alone reads a season whose first files are missing short by exactly the
+  // gap, which then refuses every later episode as already-past.
+  const progress = jellyfin.progressForItem(items, payload.itemId, anime.episodes);
+  if (progress === null) return { ok: true, ...base, anilistId: anime.id, ignored: true, reason: "episode-not-in-series-run" };
 
   const entry = await anilistList.entryFor(anime.id);
   const current = entry?.progress ?? 0;

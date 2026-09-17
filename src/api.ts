@@ -40,6 +40,7 @@ export type RequestMatch = {
 export type EpisodeProgress = {
   total: number;
   played: number;
+  progress: number;
   percent: number;
   lastPlayed: string | null;
   next: { season: number | null; episode: number | null; name: string } | null;
@@ -612,6 +613,8 @@ export type PlayedPlan = {
   item: string;
   via: string;
   upTo: number;
+  byEpisode: boolean;
+  covers: number;
   total: number;
   alreadyPlayed: number;
   episodes: Array<{ id: string; season: number | null; episode: number | null; name: string }>;

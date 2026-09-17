@@ -507,7 +507,8 @@ async function composeAnime(id) {
       : Promise.resolve(null)
   ]);
 
-  const episodes = watch ? await jellyfin.episodeProgress(watch.ids).catch(() => null) : null;
+  // AniList's own count, not Shoko's: what comes back is compared against AniList progress.
+  const episodes = watch ? await jellyfin.episodeProgress(watch.ids, anime.episodes).catch(() => null) : null;
 
   return {
     inspection,
@@ -1270,17 +1271,20 @@ app.post("/api/jellyfin/played/:anilistId", async c => {
   const items = await jellyfin.episodeItems(watch.ids);
   if (items.length === 0) return c.json({ error: "Jellyfin lists no episodes for this item" }, 409);
 
-  // Counted by position, not episode number: absolute numbering, split cours and missing files
-  // all make "episode 8" ambiguous, while "the first 8 of this item" is not.
-  const upTo = Math.min(requested, items.length);
-  const target = items.slice(0, upTo).filter(item => !item.played);
+  // By episode number where the run's numbers can be read as AniList's, by position where they
+  // cannot. "The first 10 of this item" is not progress 10 when the item starts at episode 10: it
+  // is the whole season, and marking it played would claim seven episodes that were never watched.
+  const reach = jellyfin.runUpTo(items, requested, anime.episodes);
+  const target = reach.items.filter(item => !item.played);
 
   const plan = {
     item: watch.name,
     via: watch.via,
-    upTo,
+    upTo: reach.upTo,
+    byEpisode: reach.byEpisode,
+    covers: reach.items.length,
     total: items.length,
-    alreadyPlayed: upTo - target.length,
+    alreadyPlayed: reach.items.length - target.length,
     episodes: target.map(item => ({ id: item.id, season: item.season, episode: item.episode, name: item.name }))
   };
 

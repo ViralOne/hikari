@@ -693,11 +693,15 @@ export function Detail(props: {
                               {/* Jellyfin keys played flags to item ids, so a Shokofin VFS rebuild
                                   orphans the whole history and a watched season reads as 0. AniList
                                   usually survives that, so it can be copied back. */}
+                              {/* Against the furthest watched episode, not how many are watched:
+                                  with the first nine of a season undownloaded those are nine apart,
+                                  and comparing the count offers to "catch Jellyfin up" to progress
+                                  it is already ahead of. */}
                               <Show
                                 when={
                                   watch().scoped &&
                                   anime().list &&
-                                  anime().list!.progress > episodes().played
+                                  anime().list!.progress > episodes().progress
                                 }
                               >
                                 <Show
@@ -719,7 +723,9 @@ export function Detail(props: {
                                         when={plan().episodes.length > 0}
                                         fallback={
                                           <div class="notice info">
-                                            Jellyfin already has the first {plan().upTo} marked played.
+                                            Jellyfin already has {plan().covers} episode
+                                            {plan().covers === 1 ? "" : "s"} marked played
+                                            {plan().byEpisode ? ` up to episode ${plan().upTo}` : ""}.
                                           </div>
                                         }
                                       >
@@ -747,7 +753,11 @@ export function Detail(props: {
                                             Mark them played
                                           </button>
                                           <div class="hint">
-                                            Only marks played, never unmarks, and only up to episode {plan().upTo}.
+                                            Only marks played, never unmarks, and only{" "}
+                                            {plan().byEpisode
+                                              ? `up to episode ${plan().upTo}`
+                                              : `the first ${plan().upTo} of this item`}
+                                            .
                                           </div>
                                         </Show>
                                       </Show>
@@ -821,11 +831,14 @@ export function Detail(props: {
                             </dl>
                           )}
                         </Show>
+                        {/* The furthest watched episode, not the number of watched files: those are
+                            the same only for a season that is complete from episode one, and it is
+                            AniList's progress number this is being compared with. */}
                         <Show
-                          when={anime().watch && anime().watch!.played > entry().progress}
+                          when={(anime().watch?.episodes?.progress ?? 0) > entry().progress}
                         >
                           <div class="notice warn">
-                            Jellyfin has {anime().watch!.played} episodes watched but AniList only has{" "}
+                            Jellyfin has episode {anime().watch!.episodes!.progress} watched but AniList only has{" "}
                             {entry().progress}. Ani-Sync may have missed some.
                             <Show when={writable()}>
                               {" "}
@@ -905,13 +918,15 @@ export function Detail(props: {
                           {/* Only ever offered as a way forward. Jellyfin reporting 0 because a
                               Shokofin rebuild orphaned its watch flags must not turn into a
                               one-tap button that wipes real progress on the account. */}
-                          <Show when={anime().watch && anime().watch!.played > entry().progress}>
+                          <Show when={(anime().watch?.episodes?.progress ?? 0) > entry().progress}>
                             <button
                               class="btn"
                               disabled={busy()}
-                              onClick={() => saveList(anime().id, { progress: anime().watch!.played })}
+                              onClick={() =>
+                                saveList(anime().id, { progress: anime().watch!.episodes!.progress })
+                              }
                             >
-                              Set progress to {anime().watch!.played} (from Jellyfin)
+                              Set progress to {anime().watch!.episodes!.progress} (from Jellyfin)
                             </button>
                           </Show>
                         </Show>

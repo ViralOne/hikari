@@ -216,6 +216,55 @@ export async function episodeItems(seriesIds) {
   return items.sort((a, b) => (a.season ?? 0) - (b.season ?? 0) || (a.episode ?? 0) - (b.episode ?? 0));
 }
 
+// AniList counts episodes; Jellyfin hands back items. Turning one into the other by position --
+// "the eighth item of this series is episode 8" -- only holds when the run starts at episode one
+// and has no holes. Re:Zero's 2026 season had its first nine episodes undownloaded, so watching
+// episode 17 read as position 8: nine short, and low enough that every later write was refused as
+// already-past. For a Shokofin item the IndexNumber is the AniDB episode number, which is the
+// number AniList counts, so where it can be trusted it is read directly.
+//
+// It cannot always be trusted, and each of these reads high rather than low, which is the direction
+// that writes progress you did not earn:
+//
+//   two seasons in one item      the numbers restart at 1, so they are not a single run
+//   absolute numbering           a release numbered 67-85 runs past a 19-episode entry
+//   a number used twice          a duplicate file leaves two items claiming one episode
+//   no season length to check    nothing to check the numbers against, so they are not checked
+//
+// In all of those the position is the only thing left, which is what this used to always use.
+// Expects a run without specials: season 0 is not part of what AniList counts.
+export function numbersAsProgress(items, total = null) {
+  if (!items?.length || !total) return false;
+  if (new Set(items.map(item => item.season ?? 1)).size > 1) return false;
+
+  const numbers = items.map(item => item.episode);
+  if (numbers.some(number => !Number.isInteger(number) || number < 1)) return false;
+  if (new Set(numbers).size !== numbers.length) return false;
+  return Math.max(...numbers) <= total;
+}
+
+// The AniList progress one finished item means, or null when the item is not in this run.
+export function progressForItem(items, itemId, total = null) {
+  const index = items.findIndex(item => item.id === itemId);
+  if (index < 0) return null;
+
+  const number = numbersAsProgress(items, total) ? items[index].episode : index + 1;
+  return total ? Math.min(number, total) : number;
+}
+
+// The other direction: which items have to be played for the run to be at AniList's progress.
+// `upTo` is an episode number when the numbers can be read and a count when they cannot, which is
+// what the caller reports back, so the two never get presented as the same thing.
+export function runUpTo(items, upTo, total = null) {
+  if (numbersAsProgress(items, total)) {
+    const last = Math.min(upTo, Math.max(...items.map(item => item.episode)));
+    return { byEpisode: true, upTo: last, items: items.filter(item => item.episode <= last) };
+  }
+
+  const count = Math.max(Math.min(upTo, items.length), 0);
+  return { byEpisode: false, upTo: count, items: items.slice(0, count) };
+}
+
 // Which library holds the anime. On a Shoko stack that is whichever library points at the
 // Shokofin VFS directory, which is a stronger signal than the library's name.
 export function libraries() {
@@ -293,14 +342,18 @@ export async function markPlayed(itemId) {
 // had already shown. Keyed on the ids so a changed match recomputes, and cleared by the
 // invalidate("jellyfin:") that markPlayed already issues, so a freshly marked episode is not
 // hidden behind the TTL.
-export function episodeProgress(seriesIds) {
+export function episodeProgress(seriesIds, total = null) {
   if (!enabled.jellyfin || !seriesIds?.length) return Promise.resolve(null);
 
   const ids = seriesIds.slice(0, 4);
-  return cached(`jellyfin:episodes:${ids.join(",")}`, 60 * 1000, () => computeEpisodeProgress(ids));
+  // The season length is part of the key: it decides whether the run's numbers are read as
+  // progress, so a cached answer from before it was known would be the wrong answer.
+  return cached(`jellyfin:episodes:${ids.join(",")}:${total ?? "?"}`, 60 * 1000, () =>
+    computeEpisodeProgress(ids, total)
+  );
 }
 
-async function computeEpisodeProgress(seriesIds) {
+async function computeEpisodeProgress(seriesIds, total = null) {
   const user = await userId();
   const episodes = [];
 
@@ -311,6 +364,7 @@ async function computeEpisodeProgress(seriesIds) {
     );
     for (const item of body.Items || []) {
       episodes.push({
+        id: item.Id,
         season: item.ParentIndexNumber ?? null,
         episode: item.IndexNumber ?? null,
         name: item.Name,
@@ -330,20 +384,29 @@ async function computeEpisodeProgress(seriesIds) {
     .sort()
     .pop() || null;
 
+  // How many episodes are watched, and separately the number AniList would call that progress.
+  // They are the same for a season that is complete from episode one and nothing else, and the
+  // panel needs both: "8 of 19 watched" is true of a season where the furthest watched is 17.
+  const furthest = played.length > 0 ? furthestPlayed(played) : null;
+  // Specials are not part of the run AniList counts, so they cannot stand for progress.
+  const run = episodes.filter(item => (item.season ?? 0) !== 0);
+  const furthestInRun = furthestPlayed(run.filter(item => item.played));
+
   return {
     total: episodes.length,
     played: played.length,
+    progress: furthestInRun ? (progressForItem(run, furthestInRun.id, total) ?? 0) : 0,
     percent: Math.round((played.length / episodes.length) * 100),
     lastPlayed,
     next: next ? { season: next.season, episode: next.episode, name: next.name } : null,
-    furthest: played.length > 0 ? lastWatchedLabel(played) : null
+    furthest: furthest ? { season: furthest.season, episode: furthest.episode, name: furthest.name } : null
   };
 }
 
-function lastWatchedLabel(played) {
+function furthestPlayed(played) {
+  if (played.length === 0) return null;
   const sorted = [...played].sort(
     (a, b) => (a.season ?? 0) - (b.season ?? 0) || (a.episode ?? 0) - (b.episode ?? 0)
   );
-  const last = sorted[sorted.length - 1];
-  return { season: last.season, episode: last.episode, name: last.name };
+  return sorted[sorted.length - 1];
 }

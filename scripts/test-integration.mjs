@@ -283,7 +283,9 @@ try {
   hikari = await startHikari({ fakes, env: { ANILIST_ALLOW_WRITES: "1", ANILIST_SCROBBLE: "1" } });
   logs.push(hikari.logs);
 
-  // The list is at 3 from the write above. Episode 4 is the fourth item of the series: position 4.
+  // The list is at 3 from the write above. This series runs from episode 1 with no holes, so its
+  // fourth item is episode 4 either way it is read; test-numbering covers the runs where the two
+  // answers differ.
   const scrobbled = await readJson(await hikari.call("/api/hooks/jellyfin", { method: "POST", body: finished("jf-ep-4") }));
   check(
     "finishing episode 4 moves the list to 4",
