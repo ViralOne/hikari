@@ -36,6 +36,7 @@
 | `GET /api/autolink` | Automatic linking status and last run |
 | `POST /api/autolink` | Runs a sweep. Dry run unless `{"confirm":true}` |
 | `POST /api/hooks/sonarr` | Sonarr Connect webhook target |
+| `POST /api/hooks/jellyfin` | Jellyfin Webhook plugin target. A finished episode becomes AniList progress when `anilist.scrobble` and writes are on; otherwise answers `{ ok, ignored, reason }`. See [Configuration](configuration.md#updating-anilist-as-you-watch) |
 | `GET /api/activity` | Sonarr queue, torrents, recent requests, and per-section errors |
 | `GET /api/homepage` | Flat counters for a dashboard widget |
 

@@ -36,8 +36,11 @@ HOST=127.0.0.1
 `HOST=127.0.0.1` stops it listening on the network at all, which is the right setting if you reach it
 through a reverse proxy on the same machine.
 
-Sonarr's webhook cannot send custom headers, so `/api/hooks/sonarr` also accepts the token as
-`?token=...`. That is the only route that does, because a token in a URL ends up in access logs.
+Sonarr's webhook cannot send custom headers, so `/api/hooks/*` also accepts the token as
+`?token=...`. Those are the only routes that do, because a token in a URL ends up in access logs.
+Jellyfin's Webhook plugin can send headers, so for `/api/hooks/jellyfin` use `X-Hikari-Token` on the
+destination instead. That hook's worst case, if the token leaked, is a wrong AniList progress number
+on a series you own: it writes nothing anywhere else.
 
 **Settings write access is worth guarding.** Anyone who can save settings can point a service URL
 at a host they control, and Hikari would then send that service's stored key there on its next

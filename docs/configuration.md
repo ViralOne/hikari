@@ -21,6 +21,7 @@ Every variable goes in `.env`. Anything left blank disables its feature rather t
 | `ANIME_ROOT` | no | Library path used to recognise a torrent as anime. Default `/data/anime` |
 | `ANILIST_TOKEN` | no | AniList token. Discovery works without one; this adds your list status and progress, and the **Continue the story** and **Ready to start** rows |
 | `ANILIST_ALLOW_WRITES` | no | Default `false`. Set `true` to let Hikari change your AniList status and progress |
+| `ANILIST_SCROBBLE` | no | Default `false`. With writes allowed, moves your list forward as Jellyfin finishes episodes. Needs the webhook below |
 | `AUTO_LINK` | no | Default `false`. Links files Shoko hashed but AniDB never matched, on a timer |
 | `AUTO_LINK_INTERVAL_MINUTES` | no | Default 60, minimum 5 |
 | `AUTO_LINK_GRACE_HOURS` | no | Default 6. How long a new file is left for AniDB first |
@@ -39,6 +40,35 @@ Every variable goes in `.env`. Anything left blank disables its feature rather t
 | `HIKARI_TOKEN` | no | Shared secret required on the routes that change things. Generate one under Settings instead, once the login is on. See [Security](security.md) |
 | `HOST` | no | Bind address. Default `0.0.0.0`; use `127.0.0.1` for local-only |
 | `PORT` | no | Default `7997` |
+
+## Updating AniList as you watch
+
+With **Update my list as I watch in Jellyfin** on (and writing allowed), Jellyfin tells Hikari when an
+episode finishes and Hikari sets the AniList progress to match. Setup, once:
+
+1. In Jellyfin, install the **Webhook** plugin and add a **Generic Destination**.
+2. Webhook URL: the address the AniList section of Settings shows, `http://hikari:7997/api/hooks/jellyfin`.
+   If you have an API token, add a request header on the destination: `X-Hikari-Token: <token>`.
+3. Tick **Playback Stop** and **User Data Saved**, and **Episodes** under item types.
+4. Either enable **Send All Properties**, or paste the template Settings shows into the template box, and
+   add a request header `Content-Type: application/json`.
+
+What it will and will not do:
+
+- Only a **finished** episode counts: playback that ran to the end, or one marked played in Jellyfin.
+  Stopping halfway, or starting one, changes nothing.
+- Only for the Jellyfin user Hikari reads progress for. A household member's viewing is ignored.
+- Only a series Shokofin has tagged with an **AniList** or **AniDB** id is written. A series that
+  matches by TvDB id or title alone can hold several AniList seasons, so it is refused with a reason
+  rather than guessed at, exactly as the mark-played button refuses it.
+- Progress is the episode's **position** in the series, capped at AniList's episode count, and it
+  only ever moves **forward**. A rewatch, a duplicate webhook, or Jellyfin firing twice for the same
+  episode cannot pull the list back.
+- The entry becomes `CURRENT`, or `COMPLETED` when the last episode is reached; a `REPEATING` entry
+  stays repeating.
+
+Every call is answered with a 200 and a `reason` when nothing was written, so the plugin's log tells
+you why. Nothing is ever downloaded or requested by this route.
 
 ## Performance
 

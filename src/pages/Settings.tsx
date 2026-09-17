@@ -73,6 +73,20 @@ const GROUPS: Array<{
 ];
 
 type Draft = Record<string, string | number | boolean>;
+
+// What to paste into the Jellyfin Webhook plugin's template box. Mirrors server/scrobble.js TEMPLATE;
+// the server reads the plugin's own PascalCase names too, so "Send All Properties" also works.
+const WEBHOOK_TEMPLATE = `{
+  "event": "{{NotificationType}}",
+  "itemType": "{{ItemType}}",
+  "itemId": "{{ItemId}}",
+  "seriesId": "{{SeriesId}}",
+  "seriesName": "{{SeriesName}}",
+  "playedToCompletion": "{{PlayedToCompletion}}",
+  "played": "{{Played}}",
+  "saveReason": "{{SaveReason}}",
+  "userId": "{{UserId}}"
+}`;
 type TestResult = { ok: boolean; detail?: string; error?: string };
 
 const fetchSettings = (_token: number) => getSettings();
@@ -450,6 +464,68 @@ export function Settings(props: { welcome: boolean; token: number; onSaved: () =
                     </div>
                   )}
                 </For>
+
+                {/* The webhook Jellyfin needs for scrobbling. Shown whenever the AniList group is, so the
+                    address and template are one copy away even before the toggle is on. */}
+                <Show when={group.id === "anilist"}>
+                  <div class="token-panel">
+                    <div class="box-title">Jellyfin webhook</div>
+                    <p class="setup-hint">
+                      With "Update my list as I watch" on, install Jellyfin's <strong>Webhook</strong> plugin, add a{" "}
+                      <strong>Generic Destination</strong> pointed here, tick <em>Playback Stop</em> and{" "}
+                      <em>User Data Saved</em>, enable <em>Send All Properties</em> or paste the template below, and
+                      set the request content type to <code>application/json</code>.
+                    </p>
+                    {(() => {
+                      let urlInput: HTMLInputElement | undefined;
+                      let templateInput: HTMLTextAreaElement | undefined;
+                      const webhookUrl = () => `${location.origin}/api/hooks/jellyfin`;
+                      return (
+                        <>
+                          <div class="token-value">
+                            <input
+                              ref={urlInput}
+                              class="field"
+                              readonly
+                              value={webhookUrl()}
+                              spellcheck={false}
+                              onFocus={event => event.currentTarget.select()}
+                              aria-label="Webhook address"
+                            />
+                            <button class="btn tiny" onClick={() => copy(webhookUrl(), urlInput)}>
+                              Copy
+                            </button>
+                          </div>
+                          <Show when={tokenField()?.set}>
+                            <p class="setup-hint">
+                              An API token is set, so add a request header on the destination:{" "}
+                              <code>X-Hikari-Token</code> with the token from below.
+                            </p>
+                          </Show>
+                          <div class="token-value">
+                            <textarea
+                              ref={templateInput}
+                              class="field template"
+                              readonly
+                              rows={6}
+                              spellcheck={false}
+                              value={WEBHOOK_TEMPLATE}
+                              onFocus={event => event.currentTarget.select()}
+                              aria-label="Webhook template"
+                            />
+                            <button class="btn tiny" onClick={() => copy(WEBHOOK_TEMPLATE, templateInput as unknown as HTMLInputElement)}>
+                              Copy
+                            </button>
+                          </div>
+                          <p class="setup-hint">
+                            Only episodes of a series Shokofin has tagged with an AniList or AniDB id are written, only
+                            for the Jellyfin user Hikari reads progress for, and progress only ever moves forward.
+                          </p>
+                        </>
+                      );
+                    })()}
+                  </div>
+                </Show>
               </section>
             </Show>
           )}

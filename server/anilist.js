@@ -191,6 +191,24 @@ export async function byIds(ids, ttlMs = 60 * 60 * 1000) {
 
 const BY_ID_QUERY = `query ($id: Int) { Media(id: $id, type: ANIME) { ${MEDIA_FIELDS} } }`;
 
+// The AniList entry for a MyAnimeList id. Shoko's index carries MAL ids and not AniList ones, so
+// this is the last hop from a Jellyfin series with an AniDB id back to the entry it belongs to.
+const BY_MAL_QUERY = `query ($idMal: Int) { Media(idMal: $idMal, type: ANIME) { ${MEDIA_FIELDS} } }`;
+
+export function byMalId(malId) {
+  const id = Number(malId);
+  if (!Number.isInteger(id) || id <= 0) return Promise.resolve(null);
+  return cached(
+    `anilist:mal:${id}`,
+    24 * 60 * 60 * 1000,
+    async () => {
+      const data = await gql(BY_MAL_QUERY, { idMal: id });
+      return data.Media ? shape(data.Media) : null;
+    },
+    { staleFor: 24 * 60 * 60 * 1000 }
+  );
+}
+
 export function byId(id) {
   return cached(
     `anilist:media:${id}`,

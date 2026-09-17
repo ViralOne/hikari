@@ -55,7 +55,9 @@ export const config = {
   anilist: {
     token: (process.env.ANILIST_TOKEN || "").trim(),
     // Writing to your AniList list stays off unless you ask for it.
-    allowWrites: /^(1|true|yes)$/i.test((process.env.ANILIST_ALLOW_WRITES || "").trim())
+    allowWrites: /^(1|true|yes)$/i.test((process.env.ANILIST_ALLOW_WRITES || "").trim()),
+    // Jellyfin's webhook moving your list forward as you watch. Needs allowWrites too.
+    scrobble: /^(1|true|yes)$/i.test((process.env.ANILIST_SCROBBLE || "").trim())
   },
   // Only believe X-Forwarded-For when you have actually put a proxy in front, otherwise it is a
   // free way around every per-address limit.

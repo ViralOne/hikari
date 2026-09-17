@@ -22,6 +22,7 @@ import * as planning from "./planning.js";
 import * as autolink from "./autolink.js";
 import * as warm from "./warm.js";
 import * as hidden from "./hidden.js";
+import * as scrobble from "./scrobble.js";
 import * as reconcile from "./reconcile.js";
 import * as settings from "./settings.js";
 import * as auth from "./auth.js";
@@ -1146,6 +1147,15 @@ app.post("/api/hooks/sonarr", async c => {
   const result = await autolink.onImport();
   console.log(`[hikari] sonarr hook: ${event} ${body.series?.title ?? ""}`.trim());
   return c.json({ ok: true, event, ...result });
+});
+
+// Jellyfin's Webhook plugin, for moving your AniList list forward as you watch. Same posture as the
+// Sonarr hook: guarded by the token when one is set, and by the scrobble and allowWrites settings.
+// Every outcome is a 200 with a reason, so the plugin's log shows why nothing happened rather than
+// retrying a request that will never succeed.
+app.post("/api/hooks/jellyfin", async c => {
+  const body = await c.req.json().catch(() => ({}));
+  return c.json(await scrobble.handle(body));
 });
 
 app.post("/api/jellyfin/refresh", async c => {

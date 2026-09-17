@@ -257,6 +257,74 @@ try {
   check("the detail reflects it on the next read", reread.list?.progress === 3, JSON.stringify(reread.list));
 
   // -------------------------------------------------------------------------------------------
+  console.log("\nthe Jellyfin webhook");
+
+  // This instance has writes allowed but scrobbling off: the hook must answer, and do nothing.
+  const finished = (itemId, extra = {}) => ({
+    event: "PlaybackStop",
+    itemType: "Episode",
+    itemId,
+    seriesId: "jf-series-1",
+    seriesName: "Frontier Saga",
+    playedToCompletion: "True",
+    userId: "user-1",
+    ...extra
+  });
+  const mutationsBefore = mutations().length;
+
+  const probe = await readJson(await hikari.call("/api/hooks/jellyfin", { method: "POST", body: { event: "Test" } }));
+  check("the plugin's test ping is answered", probe.ok === true && probe.note === "webhook reachable" && probe.scrobbling === false, JSON.stringify(probe));
+
+  const off = await readJson(await hikari.call("/api/hooks/jellyfin", { method: "POST", body: finished("jf-ep-4") }));
+  check("with scrobbling off a finished episode is ignored, and says so", off.ok === true && off.ignored === true && off.reason === "scrobbling-off", JSON.stringify(off));
+  check("and nothing reached AniList", mutations().length === mutationsBefore);
+
+  hikari.stop();
+  hikari = await startHikari({ fakes, env: { ANILIST_ALLOW_WRITES: "1", ANILIST_SCROBBLE: "1" } });
+  logs.push(hikari.logs);
+
+  // The list is at 3 from the write above. Episode 4 is the fourth item of the series: position 4.
+  const scrobbled = await readJson(await hikari.call("/api/hooks/jellyfin", { method: "POST", body: finished("jf-ep-4") }));
+  check(
+    "finishing episode 4 moves the list to 4",
+    scrobbled.updated === true && scrobbled.anilistId === 101 && scrobbled.from === 3 && scrobbled.progress === 4 && scrobbled.via === "anilist",
+    JSON.stringify(scrobbled)
+  );
+  const last = mutations().at(-1);
+  check(
+    "as one SaveMediaListEntry with progress 4 and status CURRENT",
+    mutations().length === mutationsBefore + 1 && last?.body?.variables?.mediaId === 101 && last.body.variables.progress === 4 && last.body.variables.status === "CURRENT",
+    JSON.stringify(last?.body?.variables)
+  );
+
+  const again = await readJson(await hikari.call("/api/hooks/jellyfin", { method: "POST", body: finished("jf-ep-4") }));
+  check("the same event again is a no-op: progress never moves backwards or repeats", again.ignored === true && again.reason === "already-at-or-past" && mutations().length === mutationsBefore + 1, JSON.stringify(again));
+
+  const earlier = await readJson(await hikari.call("/api/hooks/jellyfin", { method: "POST", body: finished("jf-ep-2") }));
+  check("rewatching an earlier episode does not pull the list back", earlier.ignored === true && earlier.reason === "already-at-or-past");
+
+  const stopped = await readJson(await hikari.call("/api/hooks/jellyfin", { method: "POST", body: finished("jf-ep-4", { playedToCompletion: "False" }) }));
+  check("stopping partway is not a finished episode", stopped.ignored === true && stopped.reason === "not-a-finished-episode");
+
+  const someoneElse = await readJson(await hikari.call("/api/hooks/jellyfin", { method: "POST", body: finished("jf-ep-4", { userId: "user-2" }) }));
+  check("another Jellyfin user's viewing is not written to your list", someoneElse.ignored === true && someoneElse.reason === "another-jellyfin-user");
+
+  const anonymous = await readJson(await hikari.call("/api/hooks/jellyfin", { method: "POST", body: finished("jf-ep-4", { userId: "" }) }));
+  check("an event with no user cannot be attributed, so it is not written", anonymous.ignored === true && anonymous.reason === "no-jellyfin-user", JSON.stringify(anonymous));
+
+  const unknown = await readJson(await hikari.call("/api/hooks/jellyfin", { method: "POST", body: finished("jf-ep-9", { seriesId: "jf-series-unknown" }) }));
+  check("a series Hikari cannot place is refused with a reason, not guessed", unknown.ignored === true && unknown.reason === "series-not-in-jellyfin-index");
+
+  const marked = await readJson(
+    await hikari.call("/api/hooks/jellyfin", {
+      method: "POST",
+      body: { NotificationType: "UserDataSaved", ItemType: "Episode", ItemId: "jf-ep-4", SeriesId: "jf-series-1", Played: true, SaveReason: "TogglePlayed", UserId: "user-1" }
+    })
+  );
+  check("the plugin's own property names are understood", marked.ok === true && marked.reason === "already-at-or-past", JSON.stringify(marked));
+  check("the detail reflects the scrobbled progress", (await readJson(await hikari.call("/api/anime/101"))).list?.progress === 4);
+
+  // -------------------------------------------------------------------------------------------
   console.log("\nthe Sonarr webhook");
 
   const hook = await hikari.call("/api/hooks/sonarr", { method: "POST", body: { eventType: "Test" } });

@@ -18,7 +18,7 @@ function api(path) {
   return request("jellyfin", `${config.jellyfin.url}${path}`, { headers: headers(), timeout: 30000 });
 }
 
-function userId() {
+export function userId() {
   return cached("jellyfin:user", 60 * 60 * 1000, async () => {
     if (config.jellyfin.userId) return config.jellyfin.userId;
     const users = await api("/Users");
@@ -47,6 +47,8 @@ export function seriesIndex() {
     const byTvdb = new Map();
     const byPath = new Map();
     const byTitle = [];
+    // Jellyfin item id -> entry, for the webhook, which arrives with a SeriesId and nothing else.
+    const byId = new Map();
 
     for (const item of body.Items || []) {
       const providers = item.ProviderIds || {};
@@ -65,6 +67,7 @@ export function seriesIndex() {
         fullyPlayed: Boolean(data.Played)
       };
 
+      byId.set(entry.id, entry);
       if (entry.anilistId) push(byAniList, entry.anilistId, entry);
       if (entry.anidbId) push(byAnidb, entry.anidbId, entry);
       if (entry.tvdbId) push(byTvdb, entry.tvdbId, entry);
@@ -76,7 +79,7 @@ export function seriesIndex() {
       }
     }
 
-    return { byAniList, byAnidb, byTvdb, byPath, byTitle };
+    return { byAniList, byAnidb, byTvdb, byPath, byTitle, byId };
   }, { staleFor: 4 * 60 * 1000 });
 }
 

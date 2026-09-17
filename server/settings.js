@@ -66,6 +66,14 @@ export const FIELDS = [
     label: "Allow writing to my list"
   },
   {
+    key: "anilist.scrobble",
+    env: "ANILIST_SCROBBLE",
+    type: "boolean",
+    group: "anilist",
+    label: "Update my list as I watch in Jellyfin",
+    hint: "Needs writing allowed and the Jellyfin Webhook plugin pointed at Hikari; the address and template are below"
+  },
+  {
     key: "animeRoot",
     env: "ANIME_ROOT",
     type: "text",
