@@ -25,6 +25,7 @@ import * as auth from "./auth.js";
 import { withinADay } from "./dates.js";
 import { request } from "./http.js";
 import { hit as rateHit } from "./ratelimit.js";
+import { upstreamStats } from "./metrics.js";
 
 const app = new Hono();
 
@@ -304,7 +305,17 @@ app.get("/api/health", async c => {
     anilistList: listCheck,
     anilist: anilistCheck
   });
-  return c.json({ ok: Object.values(checks).every(x => x.ok || !x.configured), checks });
+  // The probes say whether a service answers; the cache and latency figures say how the app has
+  // been getting on with them since boot, which is the half of "is it healthy" a green dot hides.
+  // The snapshot path stays out of the response: it is a filesystem detail the boot log already has.
+  const { snapshot, ...cache } = cacheStats();
+  return c.json({
+    ok: Object.values(checks).every(x => x.ok || !x.configured),
+    checks,
+    uptimeSeconds: Math.round(process.uptime()),
+    cache: { ...cache, persisted: Boolean(snapshot) },
+    upstream: upstreamStats()
+  });
 });
 
 app.get("/api/discover", async c => {

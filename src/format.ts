@@ -72,3 +72,15 @@ export function dayLabel(unix: number) {
 export function dateLabel(unix: number) {
   return new Date(unix * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
+
+
+export function latency(ms: number | null | undefined) {
+  if (ms === null || ms === undefined) return null;
+  const rounded = Math.round(ms);
+  return rounded < 1000 ? `${rounded} ms` : `${(ms / 1000).toFixed(1)} s`;
+}
+
+export function percent(fraction: number | null | undefined) {
+  if (fraction === null || fraction === undefined) return null;
+  return `${Math.round(fraction * 100)}%`;
+}

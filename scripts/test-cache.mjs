@@ -10,7 +10,7 @@ import { join } from "node:path";
 
 process.env.CACHE_FILE = join(mkdtempSync(join(tmpdir(), "hikari-cache-")), "cache.json");
 
-const { cached, invalidate, saveSnapshot } = await import("../server/cache.js");
+const { cached, invalidate, saveSnapshot, stats } = await import("../server/cache.js");
 
 let failures = 0;
 const check = (name, pass, detail) => {
@@ -50,6 +50,33 @@ check("but leaves unrelated upstream entries alone", unrelated.calls() === 1);
 invalidate("hikari:anime:1");
 await cached("seerr:tv:99", MINUTE, upstream);
 check("invalidating a composed entry does not cascade back to its upstreams", upstream.calls() === 2);
+
+console.log("\ncounters");
+
+{
+  const before = stats();
+  const counted = producer("v");
+  await cached("count:1", MINUTE, counted);
+  await cached("count:1", MINUTE, counted);
+  await cached("count:1", MINUTE, counted);
+  const after = stats();
+  check("a miss then two hits are counted as such", after.misses - before.misses === 1 && after.hits - before.hits === 2, JSON.stringify(after));
+  check("the hit rate is a fraction of all lookups", after.hitRate > 0 && after.hitRate < 1, `${after.hitRate}`);
+
+  // A producer that fails after a good value was cached is answered with that value and counted
+  // as stale, so the sidebar can say how often an upstream has been papered over.
+  let fails = false;
+  const flaky = () => {
+    if (fails) throw new Error("upstream down");
+    return "good";
+  };
+  await cached("count:flaky", 1, flaky);
+  await new Promise(resolve => setTimeout(resolve, 5));
+  fails = true;
+  const served = await cached("count:flaky", 1, flaky);
+  check("a failed refresh serves the last good value", served === "good");
+  check("and is counted as stale", stats().stale - before.stale === 1, `${stats().stale}`);
+}
 
 console.log("\nsnapshot allowlist");
 

@@ -39,6 +39,10 @@ const MAX_RESTORED_TTL_MS = 24 * 60 * 60 * 1000;
 
 const snapshotPath = (process.env.CACHE_FILE || "").trim();
 
+// Since boot. A hit is an unexpired entry; a miss ran the producer; stale is a producer failure
+// that was answered with the last good value instead of an error.
+const counters = { hits: 0, misses: 0, stale: 0 };
+
 function sweep() {
   const now = Date.now();
   for (const [key, entry] of store) {
@@ -60,7 +64,11 @@ function evictOldest() {
 export function cached(key, ttlMs, producer) {
   const now = Date.now();
   const hit = store.get(key);
-  if (hit && hit.expires > now) return hit.value;
+  if (hit && hit.expires > now) {
+    counters.hits += 1;
+    return hit.value;
+  }
+  counters.misses += 1;
 
   const previous = hit?.settled;
 
@@ -80,6 +88,7 @@ export function cached(key, ttlMs, producer) {
       // Keep the last good value available instead of deleting the entry that holds it,
       // which would make every following request re-hit the failing upstream.
       if (previous !== undefined) {
+        counters.stale += 1;
         console.warn(`[hikari] ${key}: ${err.message}, serving stale value`);
         store.set(key, {
           value: Promise.resolve(previous),
@@ -120,7 +129,16 @@ export function invalidate(prefix) {
 }
 
 export function stats() {
-  return { entries: store.size, limit: MAX_ENTRIES, snapshot: snapshotPath || null };
+  const lookups = counters.hits + counters.misses;
+  return {
+    entries: store.size,
+    limit: MAX_ENTRIES,
+    snapshot: snapshotPath || null,
+    hits: counters.hits,
+    misses: counters.misses,
+    stale: counters.stale,
+    hitRate: lookups === 0 ? null : counters.hits / lookups
+  };
 }
 
 function persistable(key) {

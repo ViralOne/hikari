@@ -2,6 +2,7 @@ import { createMemo, createSignal, Errored, For, Loading, Match, onSettled, Show
 import { getAuth, getHealth, getSettings, logout, onSessionLost } from "./api";
 import { Detail } from "./components/Detail";
 import { Icon } from "./components/Icon";
+import { latency, percent } from "./format";
 import { Activity } from "./pages/Activity";
 import { Discover } from "./pages/Discover";
 import { Schedule } from "./pages/Schedule";
@@ -117,10 +118,29 @@ export function App() {
     };
   });
 
+  // The list integration shares AniList's endpoint, so its latency is AniList's.
+  const upstreamKey = (name: string) => (name === "anilistList" ? "anilist" : name);
+
   const services = createMemo(() => {
     const current = health();
     if (!current) return [];
-    return Object.entries(current.checks).map(([name, check]) => ({ name, ...check }));
+    return Object.entries(current.checks).map(([name, check]) => {
+      const stat = current.upstream?.[upstreamKey(name)];
+      const ms = latency(stat?.p50);
+      const timing = stat
+        ? `median ${latency(stat.p50)}, p95 ${latency(stat.p95)}, ${stat.calls} calls${stat.errors ? `, ${stat.errors} failed` : ""}`
+        : null;
+      return { name, ...check, ms, timing, slow: (stat?.p50 ?? 0) >= 2000 };
+    });
+  });
+
+  // One line for the cache: the hit rate is the number that explains a slow first open after a
+  // restart, and a rate that stays low points at an integration whose entries keep being swept.
+  const cacheLine = createMemo(() => {
+    const cache = health()?.cache;
+    if (!cache || cache.hits + cache.misses === 0) return null;
+    const rate = percent(cache.hitRate);
+    return { short: `${rate} cached`, long: `${rate} hits, ${cache.entries} entries${cache.stale ? `, ${cache.stale} served stale` : ""}` };
   });
 
   // The sidebar's status list is hidden on a phone, so the tally has to be reachable from the
@@ -208,13 +228,24 @@ export function App() {
           <div class="box-title">Services</div>
           <For each={services()}>
             {service => (
-              <div class="svc">
+              <div class="svc" title={service.timing ?? undefined}>
                 <i class={["dot", { ok: service.ok, bad: service.configured && !service.ok }]} aria-hidden="true" />
                 <span class="svc-name">{service.name}</span>
-                <span class="svc-detail">{service.configured ? service.detail : "not configured"}</span>
+                <span class="svc-detail">
+                  {service.configured ? service.detail : "not configured"}
+                  <Show when={service.ms}>{ms => <span class={["svc-ms", { slow: service.slow }]}> · {ms()}</span>}</Show>
+                </span>
               </div>
             )}
           </For>
+          <Show when={cacheLine()}>
+            {line => (
+              <div class="svc">
+                <span class="svc-name">Cache</span>
+                <span class="svc-detail">{line().long}</span>
+              </div>
+            )}
+          </Show>
           <Show when={session()?.enabled && session()?.user}>
             {user => (
               <div class="svc">
@@ -256,15 +287,31 @@ export function App() {
         <div class="sidebar-foot">
           <For each={services()}>
             {service => (
-              <div class="svc" title={service.detail}>
+              <div class="svc" title={service.timing ? `${service.detail} · ${service.timing}` : service.detail}>
                 <i class={["dot", { ok: service.ok, bad: service.configured && !service.ok }]} aria-hidden="true" />
                 {service.name}
+                <Show when={service.ms}>
+                  {ms => (
+                    <span class={["svc-ms", { slow: service.slow }]} aria-hidden="true">
+                      {ms()}
+                    </span>
+                  )}
+                </Show>
                 <span class="visually-hidden">
                   {service.configured ? (service.ok ? "connected" : "error") : "not configured"}: {service.detail}
+                  {service.timing ? `, ${service.timing}` : ""}
                 </span>
               </div>
             )}
           </For>
+          <Show when={cacheLine()}>
+            {line => (
+              <div class="svc" title={line().long}>
+                <i class="dot" aria-hidden="true" />
+                {line().short}
+              </div>
+            )}
+          </Show>
           <button class="btn ghost tiny" style={{ "margin-top": "6px" }} onClick={refresh}>
             Refresh data
           </button>

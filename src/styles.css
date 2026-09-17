@@ -221,6 +221,23 @@ select {
   box-shadow: 0 0 8px rgba(255, 95, 109, 0.6);
 }
 
+/* Median upstream latency next to the service name. Amber past two seconds, which is where a
+   panel open starts to feel stuck. */
+.svc-ms {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  opacity: 0.8;
+}
+.svc-ms.slow {
+  color: var(--warn);
+  opacity: 1;
+}
+.svc-detail .svc-ms {
+  margin-left: 0;
+}
+
 /* --- mobile chrome. Defined here, shown only under the breakpoint at the end of the file. --- */
 
 .topbar,

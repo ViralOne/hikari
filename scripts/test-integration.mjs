@@ -43,6 +43,19 @@ try {
     configured.filter(([, item]) => !item.ok).map(([name, item]) => `${name}: ${item.detail}`).join("; ") || `${configured.length} configured`
   );
   check("anilist itself is reachable", /ok/.test(health.checks?.anilist?.detail ?? ""), health.checks?.anilist?.detail);
+  check(
+    "the response carries cache counters without the snapshot path",
+    typeof health.cache?.hits === "number" && typeof health.cache?.misses === "number" && !("snapshot" in (health.cache || {})) && health.cache?.persisted === true,
+    JSON.stringify(health.cache)
+  );
+  check(
+    "and a latency entry for every service that was called",
+    ["jellyseerr", "sonarr", "radarr", "jellyfin", "shoko", "anilist", "qbittorrent"].every(
+      name => typeof health.upstream?.[name]?.p50 === "number" && health.upstream[name].calls >= 1
+    ),
+    JSON.stringify(Object.fromEntries(Object.entries(health.upstream || {}).map(([k, v]) => [k, v.calls])))
+  );
+  check("uptime is reported", Number.isInteger(health.uptimeSeconds));
 
   // -------------------------------------------------------------------------------------------
   console.log("\ndiscover");

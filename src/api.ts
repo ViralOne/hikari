@@ -329,9 +329,22 @@ export type Activity = {
   requests: SeerRequest[];
 };
 
+export type UpstreamStat = {
+  calls: number;
+  errors: number;
+  p50: number | null;
+  p95: number | null;
+  lastMs: number | null;
+  lastAt: number | null;
+  lastError: string | null;
+};
+
 export type Health = {
   ok: boolean;
   checks: Record<string, { configured: boolean; ok: boolean; detail: string }>;
+  uptimeSeconds?: number;
+  cache?: { entries: number; limit: number; hits: number; misses: number; stale: number; hitRate: number | null; persisted: boolean };
+  upstream?: Record<string, UpstreamStat>;
 };
 
 // A session can end while the app is open: it expires, someone signs out everywhere, or the login
