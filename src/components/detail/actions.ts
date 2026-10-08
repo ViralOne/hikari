@@ -212,7 +212,9 @@ export function createDetailActions(options: { id: () => number; onRequested: ()
   const narrowSeason = (anilistId: number, seasonNumber?: number, mode: NarrowMode = "exclusive") =>
     run(async () => {
       const result = await narrowToCour(anilistId, { seasonNumber, mode, confirm: true });
-      if (!result.applied) return `Could not narrow Sonarr: ${result.reason}.`;
+      // A refusal is reported, not thrown, so it has to say ok: false itself. Sonarr is still
+      // monitoring every season at this point, and a green notice read as though it were not.
+      if (!result.applied) return { ok: false, message: `Could not narrow Sonarr: ${result.reason}.` };
       return mode === "whole"
         ? `Sonarr is monitoring every season and searching what has aired.`
         : `Sonarr ${mode === "add" ? "also monitoring" : "narrowed to"} ${result.episodes.label} (${result.episodes.count} episode${result.episodes.count === 1 ? "" : "s"}).`;

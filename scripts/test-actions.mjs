@@ -35,7 +35,8 @@ check(
   resolveAction("Jellyfin is scanning.", false)?.refetch === false
 );
 // Which is why an action that can fail without throwing has to return an explicit outcome: a
-// failure phrased as a sentence would be stamped ok and rendered in the green box.
+// failure phrased as a sentence would be stamped ok and rendered in the green box. narrowSeason
+// and linkAll both refuse without throwing, and both return an outcome for exactly this reason.
 check(
   "any sentence is success, with no inspection of what it says",
   resolveAction("Could not do the thing.", true)?.outcome.ok === true
