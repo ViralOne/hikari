@@ -23,6 +23,7 @@ import {
   type SeasonInfo,
   type ShokoAction
 } from "../api";
+import { watchedPayload } from "../list";
 import { bytes, formatLabel, seasonLabel, statusLabel } from "../format";
 import { LibraryBadge, WatchBadge } from "./Badges";
 import { CourActions, LumpedNotice, NarrowNotice } from "./CourNotice";
@@ -84,6 +85,9 @@ export function Detail(props: {
   const [requested, setRequested] = createSignal<Record<number, number[] | "all">>({});
   const [busy, setBusy] = createSignal(false);
   const [writable, setWritable] = createSignal(false);
+  // Separate from writable: without a token there is no list at all, so the box that offers to add a
+  // title has nothing to add to and must not appear.
+  const [listConfigured, setListConfigured] = createSignal(false);
   // Keyed by anime id because the panel is reused rather than remounted when you open another
   // title, and a draft episode number left over from the previous one would be wrong.
   const [drafts, setDrafts] = createSignal<Record<number, number>>({});
@@ -451,8 +455,14 @@ export function Detail(props: {
     panelRef?.focus();
     // Whether AniList writes are permitted is server-side config, not something the UI knows.
     getList()
-      .then(result => setWritable(Boolean(result.writable)))
-      .catch(() => setWritable(false));
+      .then(result => {
+        setWritable(Boolean(result.writable));
+        setListConfigured(Boolean(result.configured));
+      })
+      .catch(() => {
+        setWritable(false);
+        setListConfigured(false);
+      });
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Tab" || !panelRef) return;
@@ -807,7 +817,57 @@ export function Detail(props: {
                     )}
                   </Show>
 
-                  <Show when={anime().list}>
+                  <Show
+                    when={anime().list}
+                    fallback={
+                      /* Nothing on your list means nothing to show, and the rows that suggest a
+                         sequel are built from exactly that absence: a title stops being suggested
+                         once it is on the list, which is what these buttons are for. */
+                      <Show when={listConfigured()}>
+                        <div class="box">
+                          <div class="box-head">
+                            <span class="box-title">AniList</span>
+                            <span class="badge">Not on your list</span>
+                          </div>
+                          <Show
+                            when={writable()}
+                            fallback={
+                              <div class="hint">
+                                Read-only. Set ANILIST_ALLOW_WRITES=true to add titles from here.
+                              </div>
+                            }
+                          >
+                            <div class="hint">
+                              Already seen this? Adding it stops it being suggested again.
+                            </div>
+                            <button
+                              class="btn primary"
+                              disabled={busy()}
+                              onClick={() => saveList(anime().id, watchedPayload(anime()))}
+                            >
+                              Mark as watched
+                              {(anime().episodes ?? 0) > 1 ? ` (all ${anime().episodes} episodes)` : ""}
+                            </button>
+                            <div class="chips">
+                              {/* Completed is the button above, which also sets the episode count.
+                                  Offering it here as well would add it on episode zero. */}
+                              <For each={ANILIST_STATUSES.filter(option => option.value !== "COMPLETED")}>
+                                {option => (
+                                  <button
+                                    class="btn tiny ghost"
+                                    disabled={busy()}
+                                    onClick={() => saveList(anime().id, { status: option.value })}
+                                  >
+                                    {option.label}
+                                  </button>
+                                )}
+                              </For>
+                            </div>
+                          </Show>
+                        </div>
+                      </Show>
+                    }
+                  >
                     {entry => (
                       <div class="box">
                         <div class="box-head">
