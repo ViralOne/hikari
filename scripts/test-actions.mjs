@@ -34,9 +34,11 @@ check(
   "an action that changes nothing on the panel does not refetch",
   resolveAction("Jellyfin is scanning.", false)?.refetch === false
 );
+// Which is why an action that can fail without throwing has to return an explicit outcome: a
+// failure phrased as a sentence would be stamped ok and rendered in the green box.
 check(
-  "a sentence is still success when it is bad news, matching the panel today",
-  resolveAction("Could not narrow Sonarr: no match.", true)?.outcome.ok === true
+  "any sentence is success, with no inspection of what it says",
+  resolveAction("Could not do the thing.", true)?.outcome.ok === true
 );
 
 console.log("\nwhat an action reports when it throws");

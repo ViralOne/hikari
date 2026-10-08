@@ -25,8 +25,6 @@ import { nextSelection, type Selection } from "./seasons";
 export type { Outcome } from "./outcome";
 
 type RunOptions = {
-  /** Which title the outcome belongs to. Defaults to the one the panel is showing. */
-  key?: number;
   /** Whether finishing should refetch the panel and the rows behind it. */
   refetch?: boolean;
 };
@@ -67,7 +65,9 @@ export function createDetailActions(options: { id: () => number; onRequested: ()
    * even when it threw. Written once because eleven hand-rolled copies had already drifted apart.
    */
   const run = async (work: () => Promise<ActionResult>, runOptions: RunOptions = {}) => {
-    const key = runOptions.key ?? id();
+    // Captured before the await, so a title opened mid-flight cannot be given someone else's notice.
+    // It is also the only key the panel ever reads, which is why there is no option to vary it.
+    const key = id();
     setBusy(true);
     try {
       const resolved = resolveAction(await work(), runOptions.refetch !== false);
@@ -111,18 +111,14 @@ export function createDetailActions(options: { id: () => number; onRequested: ()
     setDrafts(prev => ({ ...prev, [id()]: clamped }));
   };
 
-  // Keyed by the title being hidden rather than the one on screen, because the franchise strip can
-  // hide a season other than the open one.
+  // Refetches the panel, which reads the flag live, and the rows behind it.
   const toggleHidden = (anilistId: number, title: string, hidden: boolean) =>
-    run(
-      async () => {
-        await (hidden ? showAnime(anilistId) : hideAnime(anilistId, title));
-        return hidden
-          ? "Back in Discover and the schedule."
-          : "Hidden from Discover, the schedule and the Homepage widget.";
-      },
-      { key: anilistId }
-    );
+    run(async () => {
+      await (hidden ? showAnime(anilistId) : hideAnime(anilistId, title));
+      return hidden
+        ? "Back in Discover and the schedule."
+        : "Hidden from Discover, the schedule and the Homepage widget.";
+    });
 
   const fixSeriesType = (seriesId: number) =>
     run(async () => {
