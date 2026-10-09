@@ -37,6 +37,8 @@ export type RequestMatch = {
   animeKeyword?: boolean | null;
   seasons?: SeasonInfo[] | null;
   suggestedSeason?: number | null;
+  /** The entry has not aired and TMDB has no season for it yet, so every season on offer is an older one. */
+  notOnTmdbYet?: boolean;
   candidates?: Array<{ tmdbId: number; mediaType: string; title: string; year: string | null; status: string }>;
 };
 

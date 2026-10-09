@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { normalize, similarity, usable, searchTitle, seasonOrdinal, pickBest, guessSeasonNumber } from "../server/match.js";
+import { normalize, similarity, usable, searchTitle, seasonOrdinal, pickBest, guessSeasonNumber, candidateSeasons } from "../server/match.js";
 import { SONARR_MATCH_THRESHOLD } from "../server/sonarr.js";
 import { JELLYFIN_TITLE_THRESHOLD } from "../server/jellyfin.js";
 
@@ -189,6 +189,99 @@ check(
       { seasonNumber: 2, airDate: "2026-01-10" }
     ]
   ) === 2
+);
+
+// An entry that has not aired cannot be any season TMDB has already finished premiering. TMDB only
+// adds a season once it is announced there, and until then the honest answer is "none": suggesting
+// the nearest existing season is how requesting SAKAMOTO DAYS Season 2 (January 2027) downloaded
+// all 22 episodes of the 2025 season instead.
+const NOW = Date.UTC(2026, 9, 8);
+const sakamotoS2 = {
+  title: { romaji: "SAKAMOTO DAYS Season 2", english: "SAKAMOTO DAYS Season 2" },
+  status: "NOT_YET_RELEASED",
+  startDate: { year: 2027, month: 1, day: null }
+};
+check(
+  "an unaired sequel is not given the only season TMDB has, which already aired",
+  guessSeasonNumber(sakamotoS2, [{ seasonNumber: 1, airDate: "2025-01-11" }], NOW) === null,
+  `got ${guessSeasonNumber(sakamotoS2, [{ seasonNumber: 1, airDate: "2025-01-11" }], NOW)}`
+);
+// The multi-season version of the same mistake: the ordinal says 2, and TMDB has a season 2, but it
+// is a season that aired years ago and not the one being announced.
+check(
+  "nor a past season that happens to share its ordinal",
+  guessSeasonNumber(
+    sakamotoS2,
+    [
+      { seasonNumber: 1, airDate: "2023-01-01" },
+      { seasonNumber: 2, airDate: "2024-07-01" }
+    ],
+    NOW
+  ) === null
+);
+check(
+  "an unaired sequel still gets its season once TMDB lists it with a future date",
+  guessSeasonNumber(
+    sakamotoS2,
+    [
+      { seasonNumber: 1, airDate: "2025-01-11" },
+      { seasonNumber: 2, airDate: "2027-01-08" }
+    ],
+    NOW
+  ) === 2
+);
+check(
+  "or lists it before it has a date at all",
+  guessSeasonNumber(
+    sakamotoS2,
+    [
+      { seasonNumber: 1, airDate: "2025-01-11" },
+      { seasonNumber: 2, airDate: null }
+    ],
+    NOW
+  ) === 2
+);
+// AniList is sometimes a day or two behind on flipping the status. A premiere this recent can still
+// be this entry, so it is not thrown away.
+check(
+  "a season that premiered days ago can still be an entry AniList has not flipped to airing",
+  guessSeasonNumber(
+    { ...sakamotoS2, startDate: { year: 2026, month: 10, day: 4 } },
+    [{ seasonNumber: 1, airDate: "2026-10-04" }],
+    NOW
+  ) === 1
+);
+check(
+  "an unaired first season gets the one season TMDB has announced",
+  guessSeasonNumber(
+    { title: { romaji: "Brand New Show", english: null }, status: "NOT_YET_RELEASED", startDate: { year: 2027, month: 1, day: 5 } },
+    [{ seasonNumber: 1, airDate: "2027-01-05" }],
+    NOW
+  ) === 1
+);
+// What has to keep working: the Apothecary Diaries shape. AniList's second season is airing, TMDB
+// still files it inside one long season 1, and requesting that season followed by narrowing Sonarr
+// to the cour is the intended path.
+check(
+  "an aired cour inside one long TMDB season is still offered that season",
+  guessSeasonNumber(
+    { title: { romaji: "Kusuriya no Hitorigoto 2nd Season", english: null }, status: "RELEASING", startDate: { year: 2025, month: 1, day: 10 } },
+    [{ seasonNumber: 1, airDate: "2023-10-22" }],
+    NOW
+  ) === 1
+);
+
+// The id mapping skips the guess entirely, so it has to clear the same bar or it walks straight past
+// it: a mapping that files an unaired sequel under an old season would request the old one.
+check(
+  "a mapped season that already aired is not a candidate for an unaired entry",
+  candidateSeasons(sakamotoS2, [{ seasonNumber: 1, airDate: "2025-01-11" }], NOW).length === 0
+);
+check(
+  "an aired entry keeps every season as a candidate",
+  candidateSeasons({ status: "FINISHED" }, [{ seasonNumber: 1, airDate: "2025-01-11" }, { seasonNumber: 0, airDate: null }], NOW)
+    .map(s => s.seasonNumber)
+    .join() === "1"
 );
 
 // --- fixture evaluation
