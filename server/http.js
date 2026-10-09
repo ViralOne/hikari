@@ -1,17 +1,21 @@
 import { observe } from "./metrics.js";
 
 export class UpstreamError extends Error {
-  constructor(service, status, body) {
+  constructor(service, status, body, headers = null) {
     super(`${service} responded ${status}`);
     this.name = "UpstreamError";
     this.service = service;
     this.status = status;
     this.body = body;
+    // Kept for the services that answer a refusal with instructions, like AniList's Retry-After.
+    this.headers = headers;
   }
 }
 
 export async function request(service, url, options = {}) {
-  const { timeout = 20000, ...rest } = options;
+  // onHeaders sees every response, success or not, before the body is judged: AniList reports its
+  // remaining rate limit on the calls that succeed, which is the only warning before the one that fails.
+  const { timeout = 20000, onHeaders, ...rest } = options;
   const signal = AbortSignal.timeout(timeout);
   const started = performance.now();
 
@@ -40,7 +44,8 @@ export async function request(service, url, options = {}) {
   // Timed to the end of the body, not the first byte: a Jellyfin listing that streams for three
   // seconds is three seconds of waiting however quickly the headers arrived.
   observe(service, performance.now() - started, res.ok ? null : `responded ${res.status}`);
+  onHeaders?.(res.headers);
 
-  if (!res.ok) throw new UpstreamError(service, res.status, parsed);
+  if (!res.ok) throw new UpstreamError(service, res.status, parsed, res.headers);
   return parsed;
 }

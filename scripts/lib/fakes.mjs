@@ -167,6 +167,8 @@ export function defaultScenario() {
   return {
     anilist: {
       viewer: { id: 1, name: "tester", siteUrl: "https://anilist.co/user/tester" },
+      // Seconds of Retry-After to answer every query with, as a 429. Null serves normally.
+      throttle: null,
       // Keyed by id so a test can add or edit an entry without touching the arrays below.
       media: { 101: frontier, 104: frontierTwo, 202: orbit, 303: classic },
       // What every Page query returns, whatever it was sorted or filtered by. The discover rows only
@@ -460,6 +462,15 @@ export async function startFakes({ scenario } = {}) {
   };
 
   const anilist = await serve("anilist", ({ method, body }) => {
+    // What AniList sends when the limit is spent: a 429 whose Retry-After says how long to stay away.
+    if (state.anilist.throttle !== null) {
+      return new Raw(429, JSON.stringify({ data: null, errors: [{ message: "Too Many Requests.", status: 429 }] }), {
+        "Content-Type": "application/json",
+        "Retry-After": String(state.anilist.throttle),
+        "X-RateLimit-Limit": "30",
+        "X-RateLimit-Remaining": "0"
+      });
+    }
     if (method !== "POST" || !body || typeof body.query !== "string") return { data: {} };
     const { query, variables = {} } = body;
 

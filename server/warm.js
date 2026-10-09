@@ -1,5 +1,6 @@
 import { config } from "./config.js";
 import { refreshAhead } from "./cache.js";
+import { inBackground } from "./anilist-queue.js";
 
 // Keeps the Discover page warm. Two halves:
 //
@@ -60,9 +61,11 @@ export function start(build) {
   builder = build;
   rebuild("warmed");
 
+  // Both halves run in the background lane: nobody is waiting on them, so their AniList calls queue
+  // behind any click and leave a third of the budget free for one.
   timer = setInterval(() => {
     if (!isActive()) return;
-    const started = refreshAhead(PREFIXES, HORIZON_MS);
+    const started = inBackground(() => refreshAhead(PREFIXES, HORIZON_MS));
     if (started > 0) console.log(`[hikari] refreshing ${started} cache entr${started === 1 ? "y" : "ies"} ahead of expiry`);
   }, INTERVAL_MS);
   timer.unref();
@@ -73,7 +76,7 @@ export function start(build) {
 export function rebuild(verb = "rebuilt") {
   if (!builder) return;
   const began = Date.now();
-  builder()
+  inBackground(() => builder())
     .then(() => console.log(`[hikari] discover ${verb} in ${Date.now() - began}ms`))
     .catch(err => console.warn(`[hikari] discover warm-up failed: ${err.message}`));
 }

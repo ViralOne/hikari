@@ -10,7 +10,7 @@ import { join } from "node:path";
 
 process.env.CACHE_FILE = join(mkdtempSync(join(tmpdir(), "hikari-cache-")), "cache.json");
 
-const { cached, invalidate, loadSnapshot, refreshAhead, saveSnapshot, stats } = await import("../server/cache.js");
+const { cached, invalidate, loadSnapshot, prime, refreshAhead, saveSnapshot, stats } = await import("../server/cache.js");
 
 let failures = 0;
 const check = (name, pass, detail) => {
@@ -201,6 +201,56 @@ console.log("\nrefresh ahead of expiry");
   await tick();
   const still = await cached("warm:fragile", 50, fragile, { staleFor: MINUTE });
   check("a failed early refresh leaves the entry serving", still === "fine");
+}
+
+console.log("\npriming from data already fetched");
+
+// A Discover card already carries every field the panel's AniList lookup asks for, so the lookup is
+// seeded from it instead of costing a call of its own when the card is opened.
+{
+  const lookup = producer("from lookup");
+  prime("anilist:media:9001", "from card", MINUTE, { staleFor: MINUTE });
+  const value = await cached("anilist:media:9001", MINUTE, lookup, { staleFor: MINUTE });
+  check("a primed entry answers the lookup without calling its producer", value === "from card" && lookup.calls() === 0, `${value}, ${lookup.calls()} calls`);
+}
+
+{
+  // A lookup that already ran is at least as fresh as a card, and it may be mid-refresh: priming
+  // over it would throw that away or race it.
+  await cached("anilist:media:9002", MINUTE, () => "from lookup");
+  prime("anilist:media:9002", "from card", MINUTE);
+  check("priming never replaces an entry that is still fresh", (await cached("anilist:media:9002", MINUTE, () => "x")) === "from lookup");
+}
+
+{
+  let release;
+  const slow = new Promise(resolve => (release = resolve));
+  const pending = cached("anilist:media:9003", MINUTE, () => slow);
+  prime("anilist:media:9003", "from card", MINUTE);
+  release("from lookup");
+  check("nor one whose producer is still running", (await pending) === "from lookup" && (await cached("anilist:media:9003", MINUTE, () => "x")) === "from lookup");
+}
+
+{
+  // An expired entry is exactly what priming is for: the card is newer than what is held.
+  await cached("anilist:media:9004", 1, () => "old");
+  await new Promise(resolve => setTimeout(resolve, 5));
+  prime("anilist:media:9004", "from card", MINUTE);
+  check("an expired entry is replaced", (await cached("anilist:media:9004", MINUTE, () => "x")) === "from card");
+}
+
+{
+  // Restored entries have no producer until someone lends one, and refreshAhead skips those. A primed
+  // entry must work the same way rather than carrying a producer that is not its own.
+  prime("anilist:media:9005", "from card", MINUTE, { staleFor: MINUTE });
+  const lent = producer("refreshed");
+  await cached("anilist:media:9005", MINUTE, lent, { staleFor: MINUTE });
+  check("the first lookup lends its producer, so refresh-ahead can keep the entry warm", lent.calls() === 0);
+}
+
+{
+  prime("anilist:media:9006", undefined, MINUTE);
+  check("an undefined value is not primed, since cached() reads that as never settled", (await cached("anilist:media:9006", MINUTE, () => "fetched")) === "fetched");
 }
 
 console.log("\nsnapshot allowlist");

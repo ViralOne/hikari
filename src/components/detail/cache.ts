@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
 import { getAnime, type AnimeDetail } from "../../api";
+import { retryWhenRateLimited } from "../../retry";
 
 // Keyed by token as well as id, so every mutating action misses rather than showing stale state.
 const detailCache = new Map<string, { at: number; value: AnimeDetail }>();
@@ -31,7 +32,9 @@ export function createDetailFetcher() {
   const fetchDetail = (id: number, token: number, _revision: number) => {
     const key = `${id}:${token}`;
     const hit = detailCache.get(key);
-    if (!hit) return getAnime(id).then(value => (rememberDetail(key, value), value));
+    // A first open is the one with nothing to show while it waits, so it is the one that waits out a
+    // rate limit behind the skeleton. The background refresh below already has a value on screen.
+    if (!hit) return retryWhenRateLimited(() => getAnime(id)).then(value => (rememberDetail(key, value), value));
 
     // Guarded on staleness and in-flight, or the revision bump would re-enter and never settle.
     if (Date.now() - hit.at > DETAIL_STALE_MS && !detailInflight.has(key)) {

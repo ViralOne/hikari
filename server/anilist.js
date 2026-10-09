@@ -1,6 +1,7 @@
 import { config } from "./config.js";
-import { cached } from "./cache.js";
+import { cached, prime } from "./cache.js";
 import { request } from "./http.js";
+import { createQueue, readLimits } from "./anilist-queue.js";
 
 // Overridable only so the integration tests can point it at an in-process fake (scripts/lib/fakes.mjs).
 const ENDPOINT = (process.env.ANILIST_URL || "https://graphql.anilist.co").trim();
@@ -31,23 +32,39 @@ const MEDIA_FIELDS = `
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+// Every AniList call in the process goes through this one queue; see anilist-queue.js for why. It
+// starts at the degraded limit AniList is currently running at and follows the headers from there.
+const queue = createQueue({ limit: 30 });
+
+export function queueState() {
+  return queue.snapshot();
+}
+
 async function gql(query, variables, attempt = 0) {
   const headers = { "Content-Type": "application/json", Accept: "application/json" };
   if (config.anilist.token) headers.Authorization = `Bearer ${config.anilist.token}`;
 
   let body;
   try {
-    body = await request("anilist", ENDPOINT, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ query, variables }),
-      timeout: 25000
-    });
+    body = await queue.run(() =>
+      request("anilist", ENDPOINT, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ query, variables }),
+        timeout: 25000,
+        onHeaders: responseHeaders => queue.observe(readLimits(responseHeaders))
+      })
+    );
   } catch (err) {
-    // AniList allows 90 requests/minute and answers 429 once that is exceeded. One backoff
-    // covers a burst; a sustained limit falls through to the cache's stale value.
-    const retryable = err.status === 429 || (err.status >= 500 && err.status < 600);
-    if (retryable && attempt < 2) {
+    // A 429 pauses the whole queue for as long as AniList asked. Trying again goes back through it,
+    // so background work waits the pause out and a click is told how long rather than left hanging.
+    if (err.status === 429) {
+      queue.throttled(readLimits(err.headers).retryAfter);
+      if (attempt < 2) return gql(query, variables, attempt + 1);
+      throw err;
+    }
+    // A server error is AniList's own problem, not a limit, so it gets a short backoff of its own.
+    if (err.status >= 500 && err.status < 600 && attempt < 2) {
       await sleep(attempt === 0 ? 1500 : 4000);
       return gql(query, variables, attempt + 1);
     }
@@ -112,10 +129,12 @@ export function page(variables, ttlMs = 10 * 60 * 1000, { persist = false } = {}
     ttlMs,
     async () => {
       const data = await gql(PAGE_QUERY, { page: 1, perPage: 30, ...variables });
+      const media = data.Page.media.map(shape);
+      if (persist) rememberMedia(media);
       return {
         total: data.Page.pageInfo.total,
         hasNextPage: data.Page.pageInfo.hasNextPage,
-        media: data.Page.media.map(shape)
+        media
       };
     },
     { staleFor: 3 * ttlMs }
@@ -150,6 +169,7 @@ export function schedule(fromUnix, toUnix) {
         }
         if (!data.Page.pageInfo.hasNextPage) break;
       }
+      rememberMedia(items.map(item => item.media));
       return items;
     },
     { staleFor: 45 * 60 * 1000 }
@@ -180,7 +200,9 @@ export async function byIds(ids, ttlMs = 60 * 60 * 1000) {
         ttlMs,
         async () => {
           const data = await gql(BY_IDS_QUERY, { ids: chunk, perPage: chunk.length });
-          return data.Page.media.map(shape);
+          const media = data.Page.media.map(shape);
+          rememberMedia(media);
+          return media;
         },
         { staleFor: ttlMs }
       )
@@ -209,16 +231,29 @@ export function byMalId(malId) {
   );
 }
 
+const MEDIA_TTL_MS = 60 * 60 * 1000;
+
 export function byId(id) {
   return cached(
     `anilist:media:${id}`,
-    60 * 60 * 1000,
+    MEDIA_TTL_MS,
     async () => {
       const data = await gql(BY_ID_QUERY, { id: Number(id) });
       return shape(data.Media);
     },
-    { staleFor: 60 * 60 * 1000 }
+    { staleFor: MEDIA_TTL_MS }
   );
+}
+
+// Every list query asks for the same MEDIA_FIELDS and shapes them the same way byId does, so each
+// result is also the answer byId would have fetched. Seeding it means opening a Discover card costs
+// no AniList call for the title itself. Only fixed-shape lists call this: a search page's titles are
+// whatever was typed, and anilist: entries are protected from eviction, so seeding from searches
+// would grow the cache with every query.
+function rememberMedia(media) {
+  for (const item of media) {
+    if (item?.id) prime(`anilist:media:${item.id}`, item, MEDIA_TTL_MS, { staleFor: MEDIA_TTL_MS });
+  }
 }
 
 function shape(media) {

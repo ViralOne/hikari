@@ -18,6 +18,8 @@ import * as radarr from "./radarr.js";
 import * as shoko from "./shoko.js";
 import * as anilistList from "./anilist-list.js";
 import * as sequels from "./sequels.js";
+import { createDetailWarmer } from "./warm-details.js";
+import { inBackground } from "./anilist-queue.js";
 import * as planning from "./planning.js";
 import * as autolink from "./autolink.js";
 import * as warm from "./warm.js";
@@ -231,6 +233,14 @@ app.onError((err, c) => {
     return err.getResponse();
   }
 
+  // Not a failure of anything: AniList asked Hikari to wait, and the caller is told for how long so
+  // it can come back rather than treating the title as broken.
+  if (err.name === "RateLimitedError") {
+    console.warn(`[hikari] ${c.req.method} ${c.req.path} -> AniList rate limited, retry in ${err.retryIn}s`);
+    c.header("Retry-After", String(err.retryIn));
+    return c.json({ error: err.message, service: err.service, retryIn: err.retryIn }, 503);
+  }
+
   const status = err.httpStatus ?? (err.name === "UpstreamError" ? 502 : 500);
   // Upstream bodies carry internal paths, versions and config; log them, never return them.
   console.error(`[hikari] ${c.req.method} ${c.req.path} -> ${err.message}`, err.body ?? "");
@@ -372,7 +382,29 @@ async function buildDiscover() {
     })
   );
 
+  warmDetails(rows);
   return { season: now, rows, errors: problems };
+}
+
+// The first cards of every row are the ones anybody opens, so their panels are composed in the
+// background ahead of the click. See warm-details.js for what that actually keeps warm and why.
+const WARM_PER_ROW = 10;
+const detailWarmer = createDetailWarmer({
+  // The same key the detail route reads, so a click on a title mid-warm shares its work.
+  warm: id => cached(`hikari:anime:${id}`, ANIME_DETAIL_TTL_MS, () => composeAnime(id))
+});
+
+// Fire and forget: the Discover response never waits for it. It throttles itself, so calling it on
+// every Discover load is what keeps it running exactly while the deck is in use. CACHE_WARM=0 turns
+// it off along with the rest of the warm-up.
+function warmDetails(rows) {
+  if (!config.cacheWarm) return;
+  inBackground(() => detailWarmer.run(rows, WARM_PER_ROW))
+    .then(result => {
+      if (result.skipped || result.warmed + result.failed === 0) return;
+      console.log(`[hikari] warmed ${result.warmed} title panel${result.warmed === 1 ? "" : "s"}${result.failed ? `, ${result.failed} failed` : ""}`);
+    })
+    .catch(err => console.warn(`[hikari] panel warm-up failed: ${err.message}`));
 }
 
 // The same row Discover shows, on its own, so it can be polled or read without paying for the

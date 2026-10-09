@@ -2,7 +2,7 @@ import { config, enabled } from "./config.js";
 import { cached, invalidate } from "./cache.js";
 import { request } from "./http.js";
 import * as mapping from "./mapping.js";
-import { pickBest, guessSeasonNumber, searchTitle } from "./match.js";
+import { candidateSeasons, pickBest, guessSeasonNumber, searchTitle } from "./match.js";
 
 export const STATUS = {
   1: "unknown",
@@ -204,8 +204,16 @@ async function enrich(result, anime, preferSeason) {
     // The mapping's season number beats any guess, but it is not always a season TMDB actually has:
     // Tokyo Majin maps to season 2 of a series TMDB files as one flat season. Use it when it exists
     // and let the air-date guess cover the rest.
-    const mappedSeasonExists = preferSeason != null && result.seasons.some(s => s.seasonNumber === preferSeason);
+    // Checked against the candidates rather than every season, or a mapping would carry an unaired
+    // entry straight past the rule that stops one being filed under a season that already aired.
+    const candidates = candidateSeasons(anime, result.seasons);
+    const mappedSeasonExists = preferSeason != null && candidates.some(s => s.seasonNumber === preferSeason);
     result.suggestedSeason = mappedSeasonExists ? preferSeason : guessSeasonNumber(anime, result.seasons);
+
+    // Not yet on TMDB at all: the entry has not aired and every season TMDB has is an older one.
+    // Said explicitly so the panel can explain why nothing is selected, instead of asking you to
+    // pick from seasons that are all wrong.
+    result.notOnTmdbYet = anime.status === "NOT_YET_RELEASED" && candidates.length === 0;
   } catch {
     result.animeKeyword = null;
     if (result.mediaType === "tv") result.seasons = null;

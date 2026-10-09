@@ -244,11 +244,24 @@ function Matched(props: { anime: AnimeDetail; actions: DetailActions; request: R
         </div>
       </Show>
 
-      <Show when={!allDone() && chosenCount() === 0 && skipped().length === 0}>
-        <div class="notice info">
-          Nothing preselected: Hikari could not tell which TMDB season this AniList entry maps to, so pick the
-          season you want.
-        </div>
+      {/* Every season TMDB has is an older one, so ticking any of them requests episodes this entry
+          is not. Said in red rather than as the usual "pick a season", which reads as permission. */}
+      <Show
+        when={!request().notOnTmdbYet}
+        fallback={
+          <div class="notice bad">
+            This hasn't aired yet and TMDB has no season for it, so every season listed above is an earlier
+            one. Requesting any of them downloads episodes you have already seen. Come back once TMDB lists
+            the new season.
+          </div>
+        }
+      >
+        <Show when={!allDone() && chosenCount() === 0 && skipped().length === 0}>
+          <div class="notice info">
+            Nothing preselected: Hikari could not tell which TMDB season this AniList entry maps to, so pick the
+            season you want.
+          </div>
+        </Show>
       </Show>
 
       <Show when={props.anime.library && props.anime.library.episodeFileCount > 0}>

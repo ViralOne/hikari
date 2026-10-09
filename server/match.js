@@ -220,8 +220,26 @@ function closestByAirDate(anime, seasons) {
   return closest;
 }
 
-export function guessSeasonNumber(anime, seasons) {
+// The TMDB seasons this AniList entry could possibly be.
+//
+// Something that has not aired cannot be a season TMDB has already finished premiering, so those
+// are out before anything else gets to look at them. Until TMDB lists the new season there is
+// nothing correct to suggest, and suggesting the nearest old one is how requesting SAKAMOTO DAYS
+// Season 2 (January 2027) downloaded the whole 2025 season. A season with no date is kept: that is
+// how TMDB lists one it has announced but not scheduled. So is one that premiered within the last
+// few weeks, because AniList can lag a day or two in flipping the status to airing.
+export function candidateSeasons(anime, seasons, now = Date.now()) {
   const real = (seasons || []).filter(s => s.seasonNumber > 0);
+  if (anime?.status !== "NOT_YET_RELEASED") return real;
+  return real.filter(s => {
+    const aired = s.airDate ? Date.parse(`${s.airDate}T00:00:00Z`) : NaN;
+    return Number.isNaN(aired) || aired > now - SAME_PREMIERE_MS;
+  });
+}
+
+export function guessSeasonNumber(anime, seasons, now = Date.now()) {
+  const real = candidateSeasons(anime, seasons, now);
+
   if (real.length === 0) return null;
   if (real.length === 1) return real[0].seasonNumber;
 

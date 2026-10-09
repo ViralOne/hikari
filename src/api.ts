@@ -37,6 +37,8 @@ export type RequestMatch = {
   animeKeyword?: boolean | null;
   seasons?: SeasonInfo[] | null;
   suggestedSeason?: number | null;
+  /** The entry has not aired and TMDB has no season for it yet, so every season on offer is an older one. */
+  notOnTmdbYet?: boolean;
   candidates?: Array<{ tmdbId: number; mediaType: string; title: string; year: string | null; status: string }>;
 };
 
@@ -399,7 +401,13 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
     const message = (body && (body as { error?: string }).error) || `${res.status} ${res.statusText}`;
     // 403 is a real account that is not allowed to do this, which is not a lost session.
     if (res.status === 401 && !path.startsWith("/api/auth")) onLost?.();
-    throw new Error(message);
+    // The status and the server's "come back in N seconds" ride along, so a caller can tell a rate
+    // limit worth waiting out from a failure that waiting will not fix.
+    const retryIn = (body as { retryIn?: unknown } | null)?.retryIn;
+    throw Object.assign(new Error(message), {
+      status: res.status,
+      retryIn: typeof retryIn === "number" ? retryIn : undefined
+    });
   }
   // A 200 whose body is not JSON used to be cast to T and returned as null, which then blew up
   // deep inside a render as "cannot read properties of null" rather than as a failed request.
