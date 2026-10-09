@@ -487,6 +487,87 @@ select {
   padding: 30px var(--gutter) 6px;
 }
 
+/* The anime health cards sit directly under one another; without a gap their borders touched. */
+.health-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Title, then badges, always in that order and always the same distance apart. Badges keep their
+   own casing even inside an uppercase table header. */
+.label-row {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.label-row .badge {
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+.label-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A series heading inside a health card's table: reads as a title, not as a column label. */
+.table th.group-head {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--text);
+  padding-top: 14px;
+}
+
+.table th.group-head .dim {
+  font-weight: 500;
+  margin-left: 8px;
+}
+
+/* Torrent paging: sits directly under the torrent table, controls left, page size right. */
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 12px;
+  flex-wrap: wrap;
+}
+
+.pager-sizes {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* Plain-language torrent / queue state with a status dot. */
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.state-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--text-faint);
+}
+
+.state-dot.ok { background: var(--ok); }
+.state-dot.busy { background: var(--accent); }
+.state-dot.warn { background: var(--warn); }
+.state-dot.bad { background: var(--bad); }
+
 .section-head {
   display: flex;
   align-items: baseline;
@@ -1749,6 +1830,18 @@ select.field {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* A name column that takes whatever width the row has left, and only then truncates. The
+   max-width: 0 on the cell is what lets a table cell shrink below its content so the ellipsis
+   can apply; without it the cell grows instead. */
+.table td.fill {
+  width: 100%;
+  max-width: 0;
+}
+
+.table td.fill .truncate {
+  max-width: none;
 }
 
 .bar {

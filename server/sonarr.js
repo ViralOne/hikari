@@ -269,6 +269,7 @@ export function series() {
       title: item.title,
       path: item.path,
       seriesType: item.seriesType,
+      tagIds: item.tags || [],
       monitored: item.monitored,
       episodeCount: item.statistics?.episodeCount ?? 0,
       episodeFileCount: item.statistics?.episodeFileCount ?? 0,
@@ -301,6 +302,49 @@ export function downloadClients() {
         category: client.fields?.find(field => field.name === "tvCategory")?.value ?? null,
         tags: client.tags || []
       }));
+  });
+}
+
+// downloadId (the torrent hash) -> seriesId for every grab of an anime-type series. Sonarr files
+// anime grabs under its normal tv category, so without this they could not be told apart from
+// any other show's torrents. Sonarr drops a series' history when the series is deleted, so a
+// hash that maps to a missing series is rare; one that maps to nothing is the usual orphan.
+export function animeDownloads() {
+  // Short: a grab Sonarr made a minute ago must not show up as "not managed by Sonarr".
+  return cached("sonarr:anime-downloads", 90 * 1000, async () => {
+    const anime = new Set((await series()).filter(item => item.seriesType === "anime").map(item => item.id));
+    const byHash = new Map();
+    // Grabs only (eventType 1). Capped so a decade of history cannot stall the panel.
+    for (let page = 1; page <= 20; page += 1) {
+      const body = await api(`/history?page=${page}&pageSize=1000&eventType=1`);
+      for (const record of body.records || []) {
+        if (record.downloadId && anime.has(record.seriesId)) {
+          byHash.set(record.downloadId.toLowerCase(), record.seriesId);
+        }
+      }
+      if (page * 1000 >= (body.totalRecords ?? 0)) break;
+    }
+    return byHash;
+  }, { staleFor: 3 * 60 * 1000 });
+}
+
+// Sonarr's tag id -> label. Series only carry ids, so anything that shows a tag needs this.
+export function tags() {
+  return cached("sonarr:tags", 10 * 60 * 1000, async () => {
+    const list = await api("/tag");
+    return new Map(list.map(tag => [tag.id, tag.label]));
+  });
+}
+
+// Folders under each root that Sonarr does not manage. Anything there is invisible to Sonarr's
+// and Maintainerr's cleanup, which is how Kaya-chan survived being "handled" twice.
+export function rootFolders() {
+  return cached("sonarr:rootfolders", 5 * 60 * 1000, async () => {
+    const list = await api("/rootfolder");
+    return list.map(folder => ({
+      path: folder.path,
+      unmapped: (folder.unmappedFolders || []).map(entry => entry.name)
+    }));
   });
 }
 
