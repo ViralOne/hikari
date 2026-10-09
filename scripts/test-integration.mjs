@@ -401,6 +401,18 @@ try {
   }
   check("the server built the Discover page on boot without being asked", /discover warmed in \d+ms/.test(hikari.logs()));
 
+  // Then the panels behind the first cards of every row, in the background.
+  for (let attempt = 0; attempt < 100 && !/warmed \d+ title panels?/.test(hikari.logs()); attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  const expectedPanels = new Set((discover.rows || []).flatMap(row => row.media.slice(0, 10).map(item => item.id))).size;
+  const warmedPanels = Number(hikari.logs().match(/warmed (\d+) title panels?/)?.[1]);
+  check(
+    "and warmed the panel of every title in the first ten of each row, once each",
+    warmedPanels === expectedPanels && expectedPanels > 0,
+    `warmed ${warmedPanels}, expected ${expectedPanels}`
+  );
+
   // -------------------------------------------------------------------------------------------
   // Last on purpose: a 429 pauses every AniList call in this process for as long as it asked, so
   // anything after this would be testing the pause rather than itself.
