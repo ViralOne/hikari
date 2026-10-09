@@ -231,6 +231,14 @@ app.onError((err, c) => {
     return err.getResponse();
   }
 
+  // Not a failure of anything: AniList asked Hikari to wait, and the caller is told for how long so
+  // it can come back rather than treating the title as broken.
+  if (err.name === "RateLimitedError") {
+    console.warn(`[hikari] ${c.req.method} ${c.req.path} -> AniList rate limited, retry in ${err.retryIn}s`);
+    c.header("Retry-After", String(err.retryIn));
+    return c.json({ error: err.message, service: err.service, retryIn: err.retryIn }, 503);
+  }
+
   const status = err.httpStatus ?? (err.name === "UpstreamError" ? 502 : 500);
   // Upstream bodies carry internal paths, versions and config; log them, never return them.
   console.error(`[hikari] ${c.req.method} ${c.req.path} -> ${err.message}`, err.body ?? "");

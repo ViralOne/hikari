@@ -1,6 +1,7 @@
 import { config } from "./config.js";
 import { cached } from "./cache.js";
 import { request } from "./http.js";
+import { createQueue, readLimits } from "./anilist-queue.js";
 
 // Overridable only so the integration tests can point it at an in-process fake (scripts/lib/fakes.mjs).
 const ENDPOINT = (process.env.ANILIST_URL || "https://graphql.anilist.co").trim();
@@ -31,23 +32,39 @@ const MEDIA_FIELDS = `
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+// Every AniList call in the process goes through this one queue; see anilist-queue.js for why. It
+// starts at the degraded limit AniList is currently running at and follows the headers from there.
+const queue = createQueue({ limit: 30 });
+
+export function queueState() {
+  return queue.snapshot();
+}
+
 async function gql(query, variables, attempt = 0) {
   const headers = { "Content-Type": "application/json", Accept: "application/json" };
   if (config.anilist.token) headers.Authorization = `Bearer ${config.anilist.token}`;
 
   let body;
   try {
-    body = await request("anilist", ENDPOINT, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ query, variables }),
-      timeout: 25000
-    });
+    body = await queue.run(() =>
+      request("anilist", ENDPOINT, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ query, variables }),
+        timeout: 25000,
+        onHeaders: responseHeaders => queue.observe(readLimits(responseHeaders))
+      })
+    );
   } catch (err) {
-    // AniList allows 90 requests/minute and answers 429 once that is exceeded. One backoff
-    // covers a burst; a sustained limit falls through to the cache's stale value.
-    const retryable = err.status === 429 || (err.status >= 500 && err.status < 600);
-    if (retryable && attempt < 2) {
+    // A 429 pauses the whole queue for as long as AniList asked. Trying again goes back through it,
+    // so background work waits the pause out and a click is told how long rather than left hanging.
+    if (err.status === 429) {
+      queue.throttled(readLimits(err.headers).retryAfter);
+      if (attempt < 2) return gql(query, variables, attempt + 1);
+      throw err;
+    }
+    // A server error is AniList's own problem, not a limit, so it gets a short backoff of its own.
+    if (err.status >= 500 && err.status < 600 && attempt < 2) {
       await sleep(attempt === 0 ? 1500 : 4000);
       return gql(query, variables, attempt + 1);
     }

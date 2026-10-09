@@ -388,6 +388,25 @@ try {
   check("the server built the Discover page on boot without being asked", /discover warmed in \d+ms/.test(hikari.logs()));
 
   // -------------------------------------------------------------------------------------------
+  // Last on purpose: a 429 pauses every AniList call in this process for as long as it asked, so
+  // anything after this would be testing the pause rather than itself.
+  console.log("\nwhen AniList rate limits");
+
+  // A title nobody has opened, so there is no cached copy to fall back on. That is the case that
+  // used to come back as a 502 after two retries on a fixed schedule shorter than the Retry-After.
+  fakes.state.anilist.media[505] = { ...fakes.state.anilist.media[202], id: 505, title: { romaji: "Cold Open", english: "Cold Open", native: null } };
+  fakes.state.anilist.throttle = 30;
+  const limitedStarted = Date.now();
+  const limited = await hikari.call("/api/anime/505");
+  const limitedBody = await readJson(limited);
+  const limitedMs = Date.now() - limitedStarted;
+  check("a cold title under a rate limit is a 503, not a 502", limited.status === 503, `got ${limited.status}`);
+  check("that says how long to wait", Number(limited.headers.get("retry-after")) > 0 && limitedBody.retryIn > 0, `Retry-After ${limited.headers.get("retry-after")}, retryIn ${limitedBody.retryIn}`);
+  check("and says it at once rather than after a string of retries", limitedMs < 3000, `${limitedMs}ms`);
+  check("a title already cached still opens while AniList is refusing", (await hikari.call("/api/anime/101")).status === 200);
+  fakes.state.anilist.throttle = null;
+
+  // -------------------------------------------------------------------------------------------
   const unhandled = fakes.calls.filter(call => call.unhandled);
   check(
     "every upstream call hit a path the fakes know",
