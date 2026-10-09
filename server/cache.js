@@ -192,6 +192,35 @@ function revalidate(key, stale, ttlMs, staleFor, producer) {
 // before a request lands on a stale one. Only entries that exist and are still inside their grace
 // are touched: nothing is fetched that nobody has asked for, and a key that has gone cold stays
 // cold rather than being kept alive for ever. Returns how many were started.
+// Seeds an entry from data some other call already fetched, so the lookup that would have fetched
+// it is answered from memory instead. A Discover card carries every field the panel's AniList
+// lookup asks for, which made opening one a second call for data already in hand.
+//
+// Only ever fills a gap: an entry that is still fresh, or whose producer is still running, is at
+// least as current as the copy being offered, so it is left alone. The primed entry has no producer
+// of its own, like one restored from the snapshot, and the first cached() caller lends one.
+export function prime(key, value, ttlMs, { staleFor = 0 } = {}) {
+  if (value === undefined) return false;
+  const now = Date.now();
+  const hit = store.get(key);
+  if (hit && (hit.expires > now || hit.refreshing)) return false;
+
+  store.set(key, {
+    value: Promise.resolve(value),
+    expires: now + ttlMs,
+    staleUntil: now + ttlMs + staleFor,
+    settled: value,
+    // Carried over when there is one, so an entry refreshAhead already knows how to renew keeps that.
+    ...(hit?.producer ? { producer: hit.producer, ttlMs: hit.ttlMs, staleFor: hit.staleFor } : {})
+  });
+
+  if (store.size > MAX_ENTRIES) {
+    sweep();
+    evictOldest();
+  }
+  return true;
+}
+
 export function refreshAhead(prefixes, withinMs) {
   const now = Date.now();
   let started = 0;

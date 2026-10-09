@@ -106,7 +106,21 @@ try {
   // -------------------------------------------------------------------------------------------
   console.log("\ndetail");
 
+  // The full AniList lookup by id, as opposed to the franchise walk, which asks for relations only.
+  const lookupsOf = id =>
+    fakes.calls.filter(
+      call =>
+        call.service === "anilist" &&
+        typeof call.body?.query === "string" &&
+        call.body.query.includes("Media(id:") &&
+        call.body.query.includes("coverImage") &&
+        Number(call.body.variables?.id) === id
+    ).length;
+  const lookupsBefore = lookupsOf(101);
   const detail = await readJson(await hikari.call("/api/anime/101"));
+  // Discover already fetched every field of this title for its card. Opening it used to fetch them
+  // all again, which is the call that came back 429 and then 502 for a title nobody had opened.
+  check("opening a title from Discover reuses the card's data instead of asking AniList again", lookupsOf(101) === lookupsBefore, `${lookupsOf(101) - lookupsBefore} lookup(s)`);
   check("the body is the AniList entry", detail.id === 101 && detail.title?.display === "Frontier Saga");
   check("with the Sonarr match", detail.library?.id === 7, JSON.stringify(detail.library));
   check("with the Shoko entry", detail.shoko?.shokoId === 55, JSON.stringify(detail.shoko && { shokoId: detail.shoko.shokoId }));

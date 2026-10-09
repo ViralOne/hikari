@@ -1,5 +1,5 @@
 import { config } from "./config.js";
-import { cached } from "./cache.js";
+import { cached, prime } from "./cache.js";
 import { request } from "./http.js";
 import { createQueue, readLimits } from "./anilist-queue.js";
 
@@ -129,10 +129,12 @@ export function page(variables, ttlMs = 10 * 60 * 1000, { persist = false } = {}
     ttlMs,
     async () => {
       const data = await gql(PAGE_QUERY, { page: 1, perPage: 30, ...variables });
+      const media = data.Page.media.map(shape);
+      if (persist) rememberMedia(media);
       return {
         total: data.Page.pageInfo.total,
         hasNextPage: data.Page.pageInfo.hasNextPage,
-        media: data.Page.media.map(shape)
+        media
       };
     },
     { staleFor: 3 * ttlMs }
@@ -167,6 +169,7 @@ export function schedule(fromUnix, toUnix) {
         }
         if (!data.Page.pageInfo.hasNextPage) break;
       }
+      rememberMedia(items.map(item => item.media));
       return items;
     },
     { staleFor: 45 * 60 * 1000 }
@@ -197,7 +200,9 @@ export async function byIds(ids, ttlMs = 60 * 60 * 1000) {
         ttlMs,
         async () => {
           const data = await gql(BY_IDS_QUERY, { ids: chunk, perPage: chunk.length });
-          return data.Page.media.map(shape);
+          const media = data.Page.media.map(shape);
+          rememberMedia(media);
+          return media;
         },
         { staleFor: ttlMs }
       )
@@ -226,16 +231,29 @@ export function byMalId(malId) {
   );
 }
 
+const MEDIA_TTL_MS = 60 * 60 * 1000;
+
 export function byId(id) {
   return cached(
     `anilist:media:${id}`,
-    60 * 60 * 1000,
+    MEDIA_TTL_MS,
     async () => {
       const data = await gql(BY_ID_QUERY, { id: Number(id) });
       return shape(data.Media);
     },
-    { staleFor: 60 * 60 * 1000 }
+    { staleFor: MEDIA_TTL_MS }
   );
+}
+
+// Every list query asks for the same MEDIA_FIELDS and shapes them the same way byId does, so each
+// result is also the answer byId would have fetched. Seeding it means opening a Discover card costs
+// no AniList call for the title itself. Only fixed-shape lists call this: a search page's titles are
+// whatever was typed, and anilist: entries are protected from eviction, so seeding from searches
+// would grow the cache with every query.
+function rememberMedia(media) {
+  for (const item of media) {
+    if (item?.id) prime(`anilist:media:${item.id}`, item, MEDIA_TTL_MS, { staleFor: MEDIA_TTL_MS });
+  }
 }
 
 function shape(media) {
