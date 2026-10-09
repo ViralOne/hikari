@@ -207,6 +207,34 @@ export async function runAction(name) {
   return { queued: true, action: name, label: action.label };
 }
 
+// AniDB only learns about a specific release once someone submits it, which for a fresh
+// WEB-DL can take days or never happen. AVDump submits the hashes and media info (no video),
+// after which Shoko matches the file on its own. Needs the AniDB UDP API key in Shoko's
+// settings ("AVDump Key"); without it Shoko answers 400 and nothing is sent.
+export async function avdumpStatus() {
+  return api("/AVDump/Status");
+}
+
+export async function avdumpFiles(fileIds) {
+  const ids = [...new Set(fileIds.map(Number).filter(Number.isInteger))];
+  if (ids.length === 0) return { queued: 0 };
+  // Shoko rejects the whole batch if any one file has no reachable path, and a file deleted
+  // since the last index refresh is exactly that. Retry once without the ones it named.
+  try {
+    await api("/AVDump/DumpFiles", { method: "POST", body: JSON.stringify({ FileIDs: ids, Priority: true }) });
+    invalidate("shoko:");
+    return { queued: ids.length, skipped: 0 };
+  } catch (err) {
+    const detail = typeof err.body === "string" ? err.body : JSON.stringify(err.body ?? "");
+    const missing = new Set([...detail.matchAll(/file with id (\d+)/g)].map(m => Number(m[1])));
+    const rest = ids.filter(id => !missing.has(id));
+    if (missing.size === 0 || rest.length === 0) throw err;
+    await api("/AVDump/DumpFiles", { method: "POST", body: JSON.stringify({ FileIDs: rest, Priority: true }) });
+    invalidate("shoko:");
+    return { queued: rest.length, skipped: missing.size };
+  }
+}
+
 // The fix when AniDB simply has no record of the release: point the file at the episode by
 // hand. Metadata only, nothing on disk is touched.
 export async function linkFile(fileId, episodeIds) {

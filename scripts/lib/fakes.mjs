@@ -610,6 +610,18 @@ export async function startFakes({ scenario } = {}) {
       return state.sonarr.episodes.filter(episode => ids.has(episode.id));
     }
 
+    // Grab history and root folders feed the anime health panel. Empty is the honest default:
+    // a fresh Sonarr has grabbed nothing and every folder under its roots is mapped.
+    if (route === "/history" && method === "GET") {
+      const records = state.sonarr.history || [];
+      return { page: Number(query.page) || 1, pageSize: Number(query.pageSize) || 20, totalRecords: records.length, records };
+    }
+    if (route === "/tag" && method === "GET") {
+      return state.sonarr.tags || [];
+    }
+    if (route === "/rootfolder" && method === "GET") {
+      return state.sonarr.rootFolders || [];
+    }
     if (route === "/queue" && method === "GET") {
       return { page: 1, pageSize: Number(query.pageSize) || 20, totalRecords: state.sonarr.queue.length, records: state.sonarr.queue };
     }

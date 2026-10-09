@@ -8,7 +8,7 @@ import { bodyLimit } from "hono/body-limit";
 import { csrf } from "hono/csrf";
 
 import { config, enabled } from "./config.js";
-import { cached, loadSnapshot, saveSnapshot, stats as cacheStats } from "./cache.js";
+import { cached, invalidate, loadSnapshot, saveSnapshot, stats as cacheStats } from "./cache.js";
 import * as anilist from "./anilist.js";
 import * as seerr from "./jellyseerr.js";
 import * as sonarr from "./sonarr.js";
@@ -27,6 +27,8 @@ import * as hidden from "./hidden.js";
 import * as mapping from "./mapping.js";
 import * as scrobble from "./scrobble.js";
 import * as reconcile from "./reconcile.js";
+import * as health from "./health.js";
+import { pageTorrents } from "./activity.js";
 import * as settings from "./settings.js";
 import * as auth from "./auth.js";
 import { withinADay } from "./dates.js";
@@ -169,6 +171,9 @@ app.use("/api/list/*", requireToken);
 app.use("/api/shoko/*", requireToken);
 app.use("/api/jellyfin/*", requireToken);
 app.use("/api/autolink", requireToken);
+app.use("/api/activity/health", requireToken);
+app.use("/api/activity/clear-missing", requireToken);
+app.use("/api/activity/avdump", requireToken);
 app.use("/api/hooks/*", requireToken);
 app.use("/api/hidden/*", requireToken);
 app.use("/api/settings", requireToken);
@@ -1353,14 +1358,30 @@ app.get("/api/activity", async c => {
     }
   };
 
-  const [queueSection, torrentSection, requestSection] = await Promise.all([
+  // The Sonarr lookups only label torrents, so they run alongside rather than after, and a failure
+  // in them leaves the torrents unlabelled instead of failing the page.
+  const [queueSection, torrentSection, requestSection, animeHashes, seriesList, tagMap] = await Promise.all([
     section(enabled.sonarr, () => sonarr.queue()),
     section(enabled.qbit, () => qbit.torrents()),
-    section(enabled.jellyseerr, () => seerr.requests(25))
+    section(enabled.jellyseerr, () => seerr.requests(25)),
+    enabled.sonarr ? sonarr.animeDownloads().catch(() => new Map()) : new Map(),
+    enabled.sonarr ? sonarr.series().catch(() => []) : [],
+    enabled.sonarr ? sonarr.tags().catch(() => new Map()) : new Map()
   ]);
 
   const queue = queueSection.data;
-  const torrents = torrentSection.data;
+  // Sonarr files anime under its plain tv category, so a path/category check alone missed them.
+  const seriesById = new Map(seriesList.map(item => [item.id, item]));
+  const torrents = torrentSection.data.map(t => {
+    const owner = seriesById.get(animeHashes.get(t.hash.toLowerCase()));
+    return {
+      ...t,
+      isAnime: health.isAnimeTorrent(t, animeHashes, config.animeRoot),
+      sonarr: owner
+        ? { id: owner.id, title: owner.title, tags: owner.tagIds.map(id => tagMap.get(id)).filter(Boolean) }
+        : null
+    };
+  });
   const requests = requestSection.data;
 
   return c.json({
@@ -1370,7 +1391,19 @@ app.get("/api/activity", async c => {
       requests: requestSection.error
     },
     queue,
-    torrents: torrents.filter(t => t.isAnime || t.active).slice(0, 60),
+    // One page of the scoped list plus totals over all of it (see activity.js).
+    ...(() => {
+      const paged = pageTorrents(torrents, {
+        scope: c.req.query("scope") === "all" ? "all" : "anime",
+        page: c.req.query("page"),
+        size: c.req.query("size")
+      });
+      return {
+        torrents: paged.items,
+        torrentPage: { page: paged.page, pageSize: paged.pageSize, pages: paged.pages, total: paged.stats.total },
+        torrentStats: paged.stats
+      };
+    })(),
     requests: requests.map(r => ({
       id: r.id,
       status: r.status,
@@ -1382,6 +1415,98 @@ app.get("/api/activity", async c => {
       createdAt: r.createdAt
     }))
   });
+});
+
+// What the cleanup tools miss, for anime only. Read-only; the two routes after it act on it.
+// One unreachable service must not blank the panel (or, through the page's error boundary, the
+// whole Activity view), so each source falls back to empty and says what it could not reach.
+async function animeHealthInputs() {
+  const errors = [];
+  const from = (isEnabled, label, fn, empty) =>
+    isEnabled
+      ? fn().catch(err => {
+          errors.push(`${label}: ${err.message}`);
+          return empty;
+        })
+      : Promise.resolve(empty);
+
+  const [torrents, animeHashes, series, files, rootFolders, tags] = await Promise.all([
+    from(enabled.qbit, "qBittorrent", () => qbit.torrents(), []),
+    from(enabled.sonarr, "Sonarr history", () => sonarr.animeDownloads(), new Map()),
+    from(enabled.sonarr, "Sonarr series", () => sonarr.series(), []),
+    from(enabled.shoko, "Shoko", () => shoko.fileIndex(), { unlinkedFiles: [] }),
+    from(enabled.sonarr, "Sonarr root folders", () => sonarr.rootFolders(), []),
+    from(enabled.sonarr, "Sonarr tags", () => sonarr.tags(), new Map())
+  ]);
+  return {
+    inputs: { animeRoot: config.animeRoot, torrents, animeHashes, series, unlinkedFiles: files.unlinkedFiles || [], rootFolders, tags },
+    errors
+  };
+}
+
+app.get("/api/activity/health", async c => {
+  const { inputs, errors } = await animeHealthInputs();
+  const report = health.classifyAnimeHealth(inputs);
+  return c.json({
+    ...report,
+    configured: { qbit: enabled.qbit, sonarr: enabled.sonarr, shoko: enabled.shoko },
+    error: errors.length > 0 ? `Partial report, could not reach ${errors.join("; ")}` : null
+  });
+});
+
+// Removes only torrent entries whose data is already gone. The hashes come from the page, so
+// each is re-checked against a fresh list: one that has recovered since is left alone.
+app.post("/api/activity/clear-missing", async c => {
+  if (!enabled.qbit) return c.json({ error: "qBittorrent is not configured" }, 503);
+  const body = await c.req.json().catch(() => ({}));
+  const wanted = new Set((Array.isArray(body.hashes) ? body.hashes : []).map(h => String(h).toLowerCase()));
+  if (wanted.size === 0) return c.json({ error: "no hashes given" }, 400);
+
+  invalidate("qbit:torrents");
+  let current;
+  try {
+    current = await qbit.torrents();
+  } catch (err) {
+    return c.json({ error: `qBittorrent unreachable: ${err.message}` }, 502);
+  }
+  // Most of the client "missing" at once is an unmounted share, not deleted data. Clearing then
+  // would throw away every torrent entry that comes back the moment the storage does.
+  if (health.looksLikeStorageOutage(current)) {
+    return c.json({
+      error: "Most torrents report missing data at once, which looks like the storage is offline rather than deleted. Nothing was cleared; check the mount, then reload."
+    }, 409);
+  }
+  const clearable = current
+    .filter(t => wanted.has(t.hash.toLowerCase()) && health.CLEARABLE_STATES.has(t.state))
+    .map(t => t.hash);
+  const { removed, error } = await qbit.removeEntries(clearable);
+  console.log(`[hikari] cleared ${removed} torrent entr${removed === 1 ? "y" : "ies"} with missing data${error ? ` (stopped: ${error})` : ""}`);
+  if (error) {
+    return c.json({ error: `Cleared ${removed} of ${clearable.length} before qBittorrent failed: ${error}`, cleared: removed }, 502);
+  }
+  return c.json({ ok: true, cleared: removed, skipped: wanted.size - clearable.length });
+});
+
+// Sends unlinked files to AniDB. Only ids Shoko currently reports as unlinked are accepted.
+app.post("/api/activity/avdump", async c => {
+  if (!enabled.shoko) return c.json({ error: "Shoko is not configured" }, 503);
+  const status = await shoko.avdumpStatus().catch(() => null);
+  if (status && status.Installed === false) {
+    return c.json({ error: "AVDump is not installed in Shoko. Install it from Shoko's settings first." }, 409);
+  }
+  const body = await c.req.json().catch(() => ({}));
+  try {
+    const unlinked = new Set(((await shoko.fileIndex()).unlinkedFiles || []).map(f => f.fileId));
+    const ids = (Array.isArray(body.fileIds) ? body.fileIds : [...unlinked]).map(Number).filter(id => unlinked.has(id));
+    if (ids.length === 0) return c.json({ ok: true, queued: 0, skipped: 0 });
+    const result = await shoko.avdumpFiles(ids);
+    console.log(`[hikari] queued ${result.queued} file(s) for AVDump`);
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    // Only a 400 points at the AniDB key; a timeout or a 500 is Shoko itself.
+    const hint = err.status === 400 ? " Check the AVDump key in Shoko's AniDB settings." : "";
+    return c.json({ error: `Shoko could not queue AVDump (${err.message}).${hint}` }, 502);
+  }
 });
 
 // Flat counters for a gethomepage customapi widget. Deliberately shallow and cheap:

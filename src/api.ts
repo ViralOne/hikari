@@ -338,7 +338,11 @@ export type Torrent = {
   savePath: string;
   addedOn: number;
   isAnime: boolean;
+  /** The Sonarr series that grabbed it, with that series' tags. Null when Sonarr never grabbed it. */
+  sonarr: SonarrRef | null;
 };
+
+export type SonarrRef = { id: number; title: string; tags: string[] };
 
 export type SeerRequest = {
   id: number;
@@ -354,7 +358,10 @@ export type SeerRequest = {
 export type Activity = {
   errors: { queue: string | null; torrents: string | null; requests: string | null };
   queue: QueueItem[];
+  /** One page of the scoped torrent list; torrentPage and torrentStats describe all of it. */
   torrents: Torrent[];
+  torrentPage: { page: number; pageSize: number; pages: number; total: number };
+  torrentStats: { total: number; active: number; down: number; up: number; anime: number };
   requests: SeerRequest[];
 };
 
@@ -522,7 +529,67 @@ export const hideAnime = (id: number, title: string) =>
   });
 export const showAnime = (id: number) =>
   json<HiddenChange>(`/api/hidden/${id}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: "{}" });
-export const getActivity = () => json<Activity>("/api/activity");
+export const TORRENT_PAGE_SIZES = [10, 25, 50] as const;
+
+export const getActivity = (scope: "anime" | "all" = "anime", page = 1, size = 10) =>
+  json<Activity>(`/api/activity?scope=${scope}&page=${page}&size=${size}`);
+
+export type HealthIssue = "missing-files" | "orphan" | "unmanaged";
+
+export type HealthTorrent = {
+  hash: string;
+  name: string;
+  category: string | null;
+  state: string;
+  size: number;
+  ratio: number;
+  series: SonarrRef | null;
+  /** The show the release is for, as the server parsed it from the name. */
+  releaseTitle: string;
+  /** For downloads Sonarr did not grab: the Sonarr series with a matching title, if any. A label, never ownership. */
+  seriesGuess: SonarrRef | null;
+  issue: HealthIssue | null;
+};
+
+export type UnlinkedFile = { fileId: number; path: string; size: number; created: string | null };
+
+export type AnimeHealth = {
+  torrents: HealthTorrent[];
+  unmanagedFolders: string[];
+  unlinked: UnlinkedFile[];
+  unlinkedByShow: { show: string; series: SonarrRef | null; files: number; size: number }[];
+  /** Tags defined in Sonarr at all. 0 means none are set up, not that loading failed. */
+  sonarrTags: number;
+  totals: {
+    anime: number;
+    missingFiles: number;
+    orphans: number;
+    orphanBytes: number;
+    unmanaged: number;
+    unlinked: number;
+    unmanagedFolders: number;
+  };
+  configured: { qbit: boolean; sonarr: boolean; shoko: boolean };
+  error: string | null;
+};
+
+export const getAnimeHealth = () => json<AnimeHealth>("/api/activity/health");
+
+export function clearMissingTorrents(hashes: string[]) {
+  return json<{ ok: true; cleared: number; skipped: number }>("/api/activity/clear-missing", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ hashes })
+  });
+}
+
+export function avdumpUnlinked(fileIds?: number[]) {
+  return json<{ ok: true; queued: number; skipped: number }>("/api/activity/avdump", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fileIds ? { fileIds } : {})
+  });
+}
 
 export function getSearch(params: Record<string, string>) {
   const query = new URLSearchParams(Object.entries(params).filter(([, v]) => v));
