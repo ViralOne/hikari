@@ -1,4 +1,4 @@
-import { resolveEpisode } from "../server/autolink.js";
+import { episodeTitleKey, pickByTitle, resolveEpisode } from "../server/autolink.js";
 import { basename, hoursSince, withinADay } from "../server/dates.js";
 
 // The automatic linker writes to Shoko, and a wrong link sticks an episode to the wrong file
@@ -19,7 +19,7 @@ const ep = (episode, airDate, extra = {}) => ({
   ...extra
 });
 
-const sonarr = (airDate, seasonNumber = 1, episodeNumber = 1) => ({ airDate, seasonNumber, episodeNumber });
+const sonarr = (airDate, seasonNumber = 1, episodeNumber = 1, title = null) => ({ airDate, seasonNumber, episodeNumber, title });
 
 console.log("date helpers");
 
@@ -95,6 +95,35 @@ check(
 
 check("an empty AniDB list refuses", resolveEpisode(sonarr("2026-08-03"), []).episode === undefined);
 check("a missing AniDB list refuses", resolveEpisode(sonarr("2026-08-03"), undefined).episode === undefined);
+
+console.log("\nsame-day tie broken by title");
+
+// Link Click S4: a double premiere, both episodes on 2026-08-14, which the air date alone refused.
+{
+  const premiere = [
+    ep(1, "2026-08-14", { titles: ["The Forgotten Past", "Vergessene Vergangenheit"] }),
+    ep(2, "2026-08-14", { titles: ["The Caged Beast", "Eingesperrt"] })
+  ];
+  check("an exact title picks the right one of two same-day episodes",
+    resolveEpisode(sonarr("2026-08-14", 4, 2, "The Caged Beast"), premiere).episode?.episode === 2);
+  check("title matching ignores case and punctuation",
+    resolveEpisode(sonarr("2026-08-14", 4, 1, "the forgotten past!"), premiere).episode?.episode === 1);
+  check("a title that matches neither still refuses",
+    /no title matches exactly/.test(resolveEpisode(sonarr("2026-08-14", 4, 1, "Something Else"), premiere).reason ?? ""));
+  check("no Sonarr title still refuses", resolveEpisode(sonarr("2026-08-14"), premiere).episode === undefined);
+  check("a near title is not enough",
+    resolveEpisode(sonarr("2026-08-14", 4, 1, "The Forgotten Past Part 2"), premiere).episode === undefined);
+}
+{
+  const batch = [ep(1, "2026-08-14", { titles: ["Episode 1"] }), ep(2, "2026-08-14", { titles: ["Episode 2"] })];
+  check("placeholder titles never break a tie",
+    resolveEpisode(sonarr("2026-08-14", 1, 1, "Episode 1"), batch).episode === undefined);
+  const twins = [ep(1, "2026-08-14", { titles: ["Same"] }), ep(2, "2026-08-14", { titles: ["Same"] })];
+  check("a title shared by two candidates refuses", resolveEpisode(sonarr("2026-08-14", 1, 1, "Same"), twins).episode === undefined);
+}
+check("an AniDB episode's titles pick one Sonarr episode",
+  pickByTitle(["Eingesperrt", "The Caged Beast"], [{ id: 1, title: "The Forgotten Past" }, { id: 2, title: "The Caged Beast" }], i => i.title)?.id === 2);
+check("the title key keeps words and drops punctuation", episodeTitleKey("  Bloodbath — in  Laos!? ") === "bloodbath in laos");
 
 console.log(failures === 0 ? "\nall checks passed" : `\n${failures} check(s) failed`);
 process.exit(failures > 0 ? 1 : 0);
