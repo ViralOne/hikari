@@ -273,6 +273,9 @@ export function fileDetail(shokoId) {
         // the release.
         shokoEpisodeId: episode.IDs?.ID ?? null,
         airDate: anidb.AirDate ?? null,
+        // Every language AniDB has, since Sonarr's title is usually, not always, the English one.
+        // Used only to tell apart episodes that aired on the same day.
+        titles: [episode.Name, ...(anidb.Titles || []).map(item => item.Name)].filter(Boolean),
         hasFile: files.length > 0,
         group,
         source: first.Source || null

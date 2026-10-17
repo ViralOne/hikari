@@ -14,7 +14,8 @@ import * as sonarr from "./sonarr.js";
 //
 // This closes that gap without guessing: the file is only linked when Sonarr's own record of
 // that exact file path pins it to one air date, and exactly one AniDB episode without a file
-// aired on that date.
+// aired on that date. When several did (a double premiere), the episode title has to match
+// exactly one of them instead.
 //
 // It deliberately waits before acting. A file AniDB has not seen yet is often registered a few
 // hours later, and an AniDB match carries better metadata than a hand link, so new files are
@@ -80,12 +81,48 @@ export function resolveEpisode(sonarrEpisode, anidbEpisodes) {
   );
 
   if (targets.length === 0) return { reason: `no unfilled AniDB episode aired on ${sonarrEpisode.airDate}` };
-  if (targets.length > 1) {
-    return { reason: `${targets.length} unfilled AniDB episodes aired on ${sonarrEpisode.airDate}` };
-  }
-  if (!targets[0].shokoEpisodeId) return { reason: "Shoko reported no episode id" };
 
-  return { episode: targets[0] };
+  let target = targets[0];
+  if (targets.length > 1) {
+    // A double premiere or a batch drop puts several episodes on one date. The air date alone
+    // cannot split them, but an episode title both sides agree on exactly can.
+    target = pickByTitle(sonarrEpisode.title, targets, item => item.titles);
+    if (!target) {
+      return {
+        reason: `${targets.length} unfilled AniDB episodes aired on ${sonarrEpisode.airDate} and no title matches exactly`
+      };
+    }
+  }
+  if (!target.shokoEpisodeId) return { reason: "Shoko reported no episode id" };
+
+  return { episode: target };
+}
+
+// Case, punctuation and spacing only. Anything fuzzier would let "Part 1" claim "Part 2".
+export function episodeTitleKey(title) {
+  if (!title) return "";
+  return title
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\p{P}\p{S}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Placeholders say nothing about which episode is which, and "Episode 1" means something else
+// on each side when AniDB and TVDB number a season differently.
+const PLACEHOLDER = /^(?:episode|ep|tba|tbd|untitled)(?: \d+)?$/;
+
+// The one candidate whose title matches exactly, or null. `titles` is one title or several (an
+// AniDB episode's languages). A title that matches more than one candidate, or a placeholder,
+// is no better than the air date it is meant to settle.
+export function pickByTitle(titles, candidates, titlesOf) {
+  const keys = new Set(
+    [titles].flat().map(episodeTitleKey).filter(key => key && !PLACEHOLDER.test(key))
+  );
+  if (keys.size === 0) return null;
+  const hits = candidates.filter(item => [titlesOf(item)].flat().some(other => keys.has(episodeTitleKey(other))));
+  return hits.length === 1 ? hits[0] : null;
 }
 
 async function plan(maxPerRun) {

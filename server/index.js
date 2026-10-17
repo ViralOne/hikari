@@ -888,13 +888,16 @@ export async function missingReport(anilistId) {
       rows.push(row);
       continue;
     }
-    if (sameDay.length > 1) {
-      row.detail = `${sameDay.length} Sonarr episodes share that air date, so the match is ambiguous`;
+
+    // Same-day episodes (a double premiere) are told apart by an exactly matching title.
+    const match =
+      sameDay.length === 1 ? sameDay[0] : autolink.pickByTitle(episode.titles, sameDay, item => item.title);
+    if (!match) {
+      row.detail = `${sameDay.length} Sonarr episodes share that air date and no title matches exactly, so the match is ambiguous`;
       rows.push(row);
       continue;
     }
 
-    const match = sameDay[0];
     row.sonarr = {
       id: match.id,
       seasonNumber: match.seasonNumber,
