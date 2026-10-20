@@ -29,6 +29,8 @@ import * as scrobble from "./scrobble.js";
 import * as reconcile from "./reconcile.js";
 import * as health from "./health.js";
 import { pageTorrents } from "./activity.js";
+import * as linker from "./linker.js";
+import * as fileProblems from "./files.js";
 import * as settings from "./settings.js";
 import * as auth from "./auth.js";
 import { withinADay } from "./dates.js";
@@ -174,6 +176,8 @@ app.use("/api/autolink", requireToken);
 app.use("/api/activity/health", requireToken);
 app.use("/api/activity/clear-missing", requireToken);
 app.use("/api/activity/avdump", requireToken);
+app.use("/api/link/*", requireToken);
+app.use("/api/activity/files/*", requireToken);
 app.use("/api/hooks/*", requireToken);
 app.use("/api/hidden/*", requireToken);
 app.use("/api/settings", requireToken);
@@ -1491,6 +1495,173 @@ app.post("/api/activity/clear-missing", async c => {
 });
 
 // Sends unlinked files to AniDB. Only ids Shoko currently reports as unlinked are accepted.
+// Extra copies and unwatchable files. Reads every anime series' episode list, so it is its own
+// request rather than part of the health report, and the panel loads it on its own.
+async function fileProblemInputs() {
+  const [series, index, torrents] = await Promise.all([
+    sonarr.series(),
+    shoko.fileIndex(),
+    enabled.qbit ? qbit.torrents().catch(() => []) : Promise.resolve([])
+  ]);
+  const anime = series.filter(item => item.seriesType === "anime");
+  const episodesBySeries = new Map();
+  for (let i = 0; i < anime.length; i += 6) {
+    const batch = anime.slice(i, i + 6);
+    const lists = await Promise.all(batch.map(item => sonarr.episodes(item.id).catch(() => [])));
+    batch.forEach((item, at) => episodesBySeries.set(item.id, lists[at]));
+  }
+  return { series: anime, episodesBySeries, shokoFiles: [...index.byTail.values()], torrents, wanted: config.watchLanguages };
+}
+
+app.get("/api/activity/files", async c => {
+  if (!enabled.sonarr || !enabled.shoko) return c.json({ error: "needs Sonarr and Shoko" }, 503);
+  try {
+    return c.json(fileProblems.findFileProblems(await fileProblemInputs()));
+  } catch (err) {
+    return c.json({ error: `Could not check the library files (${err.message})` }, 502);
+  }
+});
+
+// Deletes one extra copy, file and torrent. Re-checked against a fresh scan first: a file Sonarr
+// tracks is never deleted from here, whatever the page sent.
+app.post("/api/activity/files/remove-copy", async c => {
+  const body = await c.req.json().catch(() => ({}));
+  const fileId = Number(body.fileId);
+  if (!Number.isInteger(fileId) || fileId <= 0) return c.json({ error: "fileId must be a positive integer" }, 400);
+  invalidate("shoko:files:index");
+  invalidate("qbit:torrents");
+  const report = fileProblems.findFileProblems(await fileProblemInputs());
+  const copy = report.extraCopies.find(item => item.fileId === fileId);
+  if (!copy) return c.json({ error: "that file is no longer an extra copy, so it was left alone" }, 409);
+  try {
+    if (copy.torrent) await qbit.removeWithData([copy.torrent.hash]);
+    await shoko.deleteFile(fileId).catch(err => {
+      // The torrent removal usually took the file with it, which Shoko reports as missing.
+      if (!copy.torrent) throw err;
+    });
+    if (enabled.jellyfin) await jellyfin.refreshLibrary().catch(() => null);
+    console.log(`[hikari] removed extra copy ${copy.name}${copy.torrent ? " and its torrent" : ""}`);
+    return c.json({ ok: true, removed: copy.name, torrent: Boolean(copy.torrent) });
+  } catch (err) {
+    return c.json({ error: `Could not remove ${copy.name} (${err.message})` }, 502);
+  }
+});
+
+// Asks Sonarr for a better release. Sonarr only grabs one that scores higher than the file it has,
+// so this depends on the release profile marking subtitle-less releases down (see docs/anime-sonarr.md).
+app.post("/api/activity/files/replace", async c => {
+  const body = await c.req.json().catch(() => ({}));
+  const ids = (Array.isArray(body.episodeIds) ? body.episodeIds : []).map(Number).filter(id => Number.isInteger(id) && id > 0).slice(0, 50);
+  if (ids.length === 0) return c.json({ error: "no episodes given" }, 400);
+  try {
+    return c.json({ ok: true, ...(await sonarr.searchEpisodes(ids)), searched: ids.length });
+  } catch (err) {
+    return c.json({ error: `Sonarr could not start the search (${err.message})` }, 502);
+  }
+});
+
+// The link dialog. Reads are open like every other GET; the three writes need the token or a
+// session, and every one of them is Shoko metadata only, never a file on disk.
+app.get("/api/link/plan", async c => {
+  if (!enabled.shoko) return c.json({ error: "Shoko is not configured" }, 503);
+  const folder = (c.req.query("folder") || "").trim();
+  if (!folder || folder.includes("/") || folder.includes("\\")) return c.json({ error: "folder must be one library folder name" }, 400);
+  // ?season=2&shokoId=34 points one season at the series a person picked.
+  const season = c.req.query("season");
+  const shokoId = Number(c.req.query("shokoId"));
+  const overrides = season != null && Number.isInteger(shokoId) && shokoId > 0 ? { [season]: shokoId } : {};
+  try {
+    return c.json(await linker.buildPlan(folder, overrides));
+  } catch (err) {
+    return c.json({ error: `Could not build the link plan (${err.message})` }, 502);
+  }
+});
+
+app.get("/api/link/anidb", async c => {
+  if (!enabled.shoko) return c.json({ error: "Shoko is not configured" }, 503);
+  const query = (c.req.query("q") || "").trim().slice(0, 120);
+  if (query.length < 2) return c.json({ results: [] });
+  try {
+    return c.json({ results: await shoko.searchAnidb(query) });
+  } catch (err) {
+    return c.json({ error: `Shoko could not search AniDB titles (${err.message})` }, 502);
+  }
+});
+
+app.post("/api/link/series", async c => {
+  if (!enabled.shoko) return c.json({ error: "Shoko is not configured" }, 503);
+  const body = await c.req.json().catch(() => ({}));
+  const anidbId = Number(body.anidbId);
+  if (!Number.isInteger(anidbId) || anidbId <= 0) return c.json({ error: "anidbId must be a positive integer" }, 400);
+  try {
+    const shokoId = await shoko.createSeries(anidbId);
+    // Null means Shoko accepted the request but AniDB has not answered yet; the dialog says so.
+    return c.json({ ok: true, shokoId });
+  } catch (err) {
+    return c.json({ error: `Shoko could not add AniDB ${anidbId} (${err.message})` }, 502);
+  }
+});
+
+app.post("/api/link/apply", async c => {
+  if (!enabled.shoko) return c.json({ error: "Shoko is not configured" }, 503);
+  const body = await c.req.json().catch(() => ({}));
+  const links = Array.isArray(body.links) ? body.links.slice(0, 200) : [];
+  const unlinked = new Set(((await shoko.fileIndex()).unlinkedFiles || []).map(file => file.fileId));
+
+  const linked = [];
+  const errors = [];
+  for (const link of links) {
+    const fileId = Number(link?.fileId);
+    const episodeId = Number(link?.shokoEpisodeId);
+    if (!Number.isInteger(episodeId) || episodeId <= 0) {
+      errors.push({ fileId, error: "no episode chosen" });
+      continue;
+    }
+    // Only files still unlinked: this is not a way to re-point a file AniDB already matched.
+    if (!unlinked.has(fileId)) {
+      errors.push({ fileId, error: "the file is no longer unlinked" });
+      continue;
+    }
+    try {
+      await shoko.linkFile(fileId, [episodeId]);
+      linked.push({ fileId, shokoEpisodeId: episodeId });
+    } catch (err) {
+      errors.push({ fileId, error: err.message });
+    }
+  }
+
+  // Shokofin only exposes a linked file after Jellyfin scans, so without this nothing changes on screen.
+  let scanned = false;
+  if (linked.length > 0 && enabled.jellyfin) {
+    scanned = await jellyfin.refreshLibrary().then(() => true).catch(() => false);
+  }
+  if (linked.length > 0) console.log(`[hikari] link dialog: ${linked.length} file(s) linked by hand`);
+  return c.json({ ok: errors.length === 0, linked, errors, scanned });
+});
+
+app.post("/api/link/undo", async c => {
+  if (!enabled.shoko) return c.json({ error: "Shoko is not configured" }, 503);
+  const body = await c.req.json().catch(() => ({}));
+  const fileId = Number(body.fileId);
+  if (!Number.isInteger(fileId) || fileId <= 0) return c.json({ error: "fileId must be a positive integer" }, 400);
+
+  // Only hand links can be undone here. A match AniDB made by hash is the best link there is, and
+  // removing it would hide a correct episode with no way back short of a rescan.
+  const index = await shoko.fileIndex();
+  const entry = [...index.byTail.values()].find(item => item.fileId === fileId);
+  if (!entry || !entry.linked) return c.json({ error: "that file is not linked" }, 409);
+  if (entry.links.some(link => link.verified)) {
+    return c.json({ error: "AniDB matched that file itself, so it is not undone from here" }, 409);
+  }
+  try {
+    await shoko.unlinkFile(fileId);
+    if (enabled.jellyfin) await jellyfin.refreshLibrary().catch(() => null);
+    return c.json({ ok: true });
+  } catch (err) {
+    return c.json({ error: `Shoko could not unlink the file (${err.message})` }, 502);
+  }
+});
+
 app.post("/api/activity/avdump", async c => {
   if (!enabled.shoko) return c.json({ error: "Shoko is not configured" }, 503);
   const status = await shoko.avdumpStatus().catch(() => null);

@@ -10,6 +10,8 @@ import {
 } from "../api";
 import { bytes, torrentState } from "../format";
 import { SonarrLabel } from "../components/SonarrLabel";
+import { LinkDialog } from "../components/LinkDialog";
+import { FileProblemsBoxes } from "../components/FileProblems";
 
 // A failed request (Hikari restarting, a lost session) becomes an empty report with the reason,
 // instead of escaping to the app's error boundary and taking the whole Activity view with it.
@@ -43,6 +45,7 @@ export function AnimeHealthSection(props: { token: number }) {
   const data = createMemo(() => fetchHealth(props.token, tick()));
   const [busy, setBusy] = createSignal(false);
   const [message, setMessage] = createSignal<{ tone: "good" | "bad"; text: string } | null>(null);
+  const [linking, setLinking] = createSignal<{ folder: string; title: string } | null>(null);
 
   const byIssue = (issue: HealthIssue) => data().torrents.filter(torrent => torrent.issue === issue);
 
@@ -122,7 +125,8 @@ export function AnimeHealthSection(props: { token: number }) {
               </div>
               <div class="dim" style={{ "font-size": "12px" }}>
                 Shoko hashed these but AniDB has no record of the release, so they never reach Jellyfin's anime library.
-                "Send to AniDB" submits them with AVDump (needs the AVDump key in Shoko).
+                "Link…" lets you match them to episodes yourself, with a guess filled in. "Send to AniDB" submits them with
+                AVDump (needs the AVDump key in Shoko) so AniDB learns them for next time.
               </div>
               <table class="table">
                 <tbody>
@@ -134,6 +138,15 @@ export function AnimeHealthSection(props: { token: number }) {
                         </td>
                         <td class="num">{group.files} file(s)</td>
                         <td class="num">{bytes(group.size)}</td>
+                        <td class="num">
+                          <button
+                            class="btn tiny"
+                            disabled={busy()}
+                            onClick={() => setLinking({ folder: group.folder, title: group.series?.title ?? group.show })}
+                          >
+                            Link…
+                          </button>
+                        </td>
                       </tr>
                     )}
                   </For>
@@ -176,6 +189,17 @@ export function AnimeHealthSection(props: { token: number }) {
           </div>
         </Show>
       </Loading>
+      <FileProblemsBoxes token={props.token} />
+      <Show when={linking()}>
+        {target => (
+          <LinkDialog
+            folder={target().folder}
+            title={target().title}
+            onClose={() => setLinking(null)}
+            onChanged={() => setTick(value => value + 1)}
+          />
+        )}
+      </Show>
     </section>
   );
 }

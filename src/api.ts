@@ -557,7 +557,7 @@ export type AnimeHealth = {
   torrents: HealthTorrent[];
   unmanagedFolders: string[];
   unlinked: UnlinkedFile[];
-  unlinkedByShow: { show: string; series: SonarrRef | null; files: number; size: number }[];
+  unlinkedByShow: { show: string; folder: string; series: SonarrRef | null; files: number; size: number }[];
   /** Tags defined in Sonarr at all. 0 means none are set up, not that loading failed. */
   sonarrTags: number;
   totals: {
@@ -582,6 +582,91 @@ export function clearMissingTorrents(hashes: string[]) {
     body: JSON.stringify({ hashes })
   });
 }
+
+export type LinkVia = "numbering" | "air date" | "title";
+
+export type LinkPlanSeason = {
+  seasonNumber: number | null;
+  shoko: { id: number; name: string; anidbId: number | null } | null;
+  /** Whether the Shoko series came from the files AniDB matched or from a person picking it. */
+  chosenBy: "automatic" | "you" | null;
+  offset: number | null;
+  episodes: { shokoEpisodeId: number; episode: number; title: string | null; airDate: string | null; hasFile: boolean }[];
+  files: {
+    fileId: number;
+    name: string;
+    size: number;
+    sonarr: { seasonNumber: number; episodeNumber: number; title: string | null; airDate: string | null } | null;
+    guess: { shokoEpisodeId: number; via: LinkVia } | null;
+    reason: string | null;
+  }[];
+};
+
+export type LinkPlan = { folder: string; series: { id: number; title: string; titles: string[] } | null; seasons: LinkPlanSeason[] };
+
+export type AnidbResult = {
+  anidbId: number;
+  shokoId: number | null;
+  title: string;
+  type: string | null;
+  airDate: string | null;
+  episodes: number | null;
+};
+
+export function getLinkPlan(folder: string, override?: { season: number | null; shokoId: number }) {
+  const query = new URLSearchParams({ folder });
+  if (override) {
+    query.set("season", String(override.season));
+    query.set("shokoId", String(override.shokoId));
+  }
+  return json<LinkPlan>(`/api/link/plan?${query.toString()}`);
+}
+
+export const searchAnidb = (q: string) =>
+  json<{ results: AnidbResult[] }>(`/api/link/anidb?${new URLSearchParams({ q }).toString()}`);
+
+const postJson = <T,>(path: string, body: unknown) =>
+  json<T>(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+export const addShokoSeries = (anidbId: number) =>
+  postJson<{ ok: true; shokoId: number | null }>("/api/link/series", { anidbId });
+
+export const applyLinks = (links: { fileId: number; shokoEpisodeId: number }[]) =>
+  postJson<{ ok: boolean; linked: { fileId: number; shokoEpisodeId: number }[]; errors: { fileId: number; error: string }[]; scanned: boolean }>(
+    "/api/link/apply",
+    { links }
+  );
+
+export const undoLink = (fileId: number) => postJson<{ ok: true }>("/api/link/undo", { fileId });
+
+export type FileProblems = {
+  extraCopies: {
+    fileId: number;
+    name: string;
+    size: number;
+    linked: boolean;
+    series: { id: number; title: string };
+    episode: string | null;
+    kept: { name: string; size: number; subtitles: string } | null;
+    torrent: { hash: string; name: string; category: string | null } | null;
+  }[];
+  unwatchable: {
+    series: { id: number; title: string };
+    episodeId: number;
+    episode: string;
+    name: string;
+    release: string | null;
+    subtitles: string;
+    audio: string;
+  }[];
+  wanted: string[];
+};
+
+export const getFileProblems = () => json<FileProblems>("/api/activity/files");
+export const removeExtraCopy = (fileId: number) =>
+  postJson<{ ok: true; removed: string; torrent: boolean }>("/api/activity/files/remove-copy", { fileId });
+export const replaceEpisodes = (episodeIds: number[]) =>
+  postJson<{ ok: true; searched: number }>("/api/activity/files/replace", { episodeIds });
 
 export function avdumpUnlinked(fileIds?: number[]) {
   return json<{ ok: true; queued: number; skipped: number }>("/api/activity/avdump", {

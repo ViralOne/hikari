@@ -52,7 +52,12 @@ export function episodes(seriesId) {
       // The relative path is what ties a Sonarr episode to the file Shoko hashed: the two
       // mount the library at different roots, so only the tail can be compared.
       relativePath: item.episodeFile?.relativePath || null,
-      size: item.episodeFile?.size ?? null
+      size: item.episodeFile?.size ?? null,
+      // Slash-separated ISO 639-2 codes as Sonarr's media scan reports them ("eng/jpn"). The file
+      // problems check uses them to find episodes nobody can follow.
+      subtitles: item.episodeFile?.mediaInfo?.subtitles || "",
+      audioLanguages: item.episodeFile?.mediaInfo?.audioLanguages || "",
+      sceneName: item.episodeFile?.sceneName || null
     }));
   });
 }
@@ -274,6 +279,8 @@ export function series() {
       episodeCount: item.statistics?.episodeCount ?? 0,
       episodeFileCount: item.statistics?.episodeFileCount ?? 0,
       sizeOnDisk: item.statistics?.sizeOnDisk ?? 0,
+      // As Sonarr has them, for searches elsewhere (AniDB's title list) that the keys would mangle.
+      titles: [...new Set([item.title, ...(item.alternateTitles || []).map(alt => alt.title)].filter(Boolean))],
       keys: [...new Set(
         [item.title, ...(item.alternateTitles || []).map(alt => alt.title)]
           .filter(Boolean)

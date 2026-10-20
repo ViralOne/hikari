@@ -64,6 +64,9 @@ export const config = {
   trustProxy: /^(1|true|yes)$/i.test((process.env.TRUST_PROXY || "").trim()),
   rateLimit: num(process.env.RATE_LIMIT_PER_MINUTE, 600, 30, 100000),
   animeRoot: trim(process.env.ANIME_ROOT, "/data/anime"),
+  // A file with none of these as subtitles or audio is flagged as unwatchable (ISO 639-2, as
+  // Sonarr reports them). Comma separated: "eng,rum".
+  watchLanguages: (process.env.WATCH_LANGUAGES || "eng").split(",").map(code => code.trim().toLowerCase()).filter(Boolean),
   // Login is checked against Jellyfin, so Hikari keeps no accounts of its own. Off by default,
   // because on with no Jellyfin configured the gate refuses every request: a security control that
   // stood aside instead would quietly leave a private instance public.

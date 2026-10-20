@@ -2251,3 +2251,90 @@ select.field {
 .signed-in .svc-name {
   margin-right: auto;
 }
+
+/* Link dialog: the details panel's shell, wider, since each row carries an episode picker. */
+.panel.link-dialog {
+  width: min(760px, 100vw);
+}
+
+.link-dialog .panel-body {
+  padding-top: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.link-title {
+  padding-right: 44px;
+}
+
+.link-intro {
+  font-size: 12px;
+}
+
+.link-season .table td {
+  vertical-align: top;
+}
+
+.link-season .table td.fill {
+  width: auto;
+  max-width: 0;
+}
+
+.link-choice {
+  width: 46%;
+  min-width: 240px;
+}
+
+.link-choice .field {
+  width: 100%;
+}
+
+.link-meta {
+  margin-top: 3px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.link-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.link-picker .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.link-result {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.link-result:hover:not(:disabled) {
+  border-color: var(--border-hi);
+}
+
+.link-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.link-undo {
+  justify-content: space-between;
+}
+
+.link-working {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
