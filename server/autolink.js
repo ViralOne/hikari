@@ -15,7 +15,8 @@ import * as sonarr from "./sonarr.js";
 // This closes that gap without guessing: the file is only linked when Sonarr's own record of
 // that exact file path pins it to one air date, and exactly one AniDB episode without a file
 // aired on that date. When several did (a double premiere), the episode title has to match
-// exactly one of them instead.
+// exactly one of them instead. And once AniDB has matched any file of the season by hash, that
+// match fixes how the two sides number it, and the number decides instead of the date.
 //
 // It deliberately waits before acting. A file AniDB has not seen yet is often registered a few
 // hours later, and an AniDB match carries better metadata than a hand link, so new files are
@@ -70,8 +71,22 @@ function scheduleAfterGrace() {
 // The decision that matters, kept pure so it can be tested without a live stack: which AniDB
 // episode, if any, a Sonarr episode's file belongs to. Anything short of exactly one candidate
 // is a refusal, because the alternative is linking a file to the wrong episode permanently.
-export function resolveEpisode(sonarrEpisode, anidbEpisodes) {
+//
+// `offset`, when known, is how AniDB numbers this season relative to Sonarr, proven by files AniDB
+// itself matched (see numberingOffset). It wins over the air date, because TVDB and AniDB dates
+// for the same episode can sit a week apart, and then the date picks the wrong episode outright.
+export function resolveEpisode(sonarrEpisode, anidbEpisodes, { offset = null } = {}) {
   if (!sonarrEpisode) return { reason: "Sonarr has no episode with that file path" };
+
+  if (Number.isInteger(offset)) {
+    const number = sonarrEpisode.episodeNumber + offset;
+    const target = (anidbEpisodes || []).find(item => item.episode === number);
+    if (!target) return { reason: `AniDB has no episode ${number} for S${sonarrEpisode.seasonNumber}E${sonarrEpisode.episodeNumber}` };
+    if (target.hasFile) return { reason: `AniDB episode ${number} already has a file` };
+    if (!target.shokoEpisodeId) return { reason: "Shoko reported no episode id" };
+    return { episode: target, via: "numbering" };
+  }
+
   if (!sonarrEpisode.airDate) {
     return { reason: `Sonarr has no air date for S${sonarrEpisode.seasonNumber}E${sonarrEpisode.episodeNumber}` };
   }
@@ -95,7 +110,32 @@ export function resolveEpisode(sonarrEpisode, anidbEpisodes) {
   }
   if (!target.shokoEpisodeId) return { reason: "Shoko reported no episode id" };
 
-  return { episode: target };
+  return { episode: target, via: "air date" };
+}
+
+// Anchors are the episodes of one Sonarr season whose files AniDB matched by hash:
+// { episodeNumber, shokoSeriesId, shokoEpisodeId }. They settle two things the ids and dates
+// cannot.
+//
+// Which Shoko series the season is. AniDB gives every season its own entry and does not always
+// record a TVDB id for it, and when it does, every season of the show shares that one id.
+export function anchorSeries(anchors) {
+  const ids = new Set(anchors.map(anchor => anchor.shokoSeriesId).filter(id => id != null));
+  return ids.size === 1 ? [...ids][0] : null;
+}
+
+// And how AniDB numbers the season against Sonarr: AniDB episode minus Sonarr episode, which must
+// be the same for every anchor. One disagreeing anchor (a split cour, a recap AniDB skips) and
+// the numbering is not trusted at all.
+export function numberingOffset(anchors, anidbEpisodes) {
+  const byId = new Map((anidbEpisodes || []).map(item => [item.shokoEpisodeId, item.episode]));
+  const offsets = new Set();
+  for (const anchor of anchors) {
+    const number = byId.get(anchor.shokoEpisodeId);
+    if (!Number.isInteger(number)) return null;
+    offsets.add(number - anchor.episodeNumber);
+  }
+  return offsets.size === 1 ? [...offsets][0] : null;
 }
 
 // Case, punctuation and spacing only. Anything fuzzier would let "Part 1" claim "Part 2".
@@ -156,55 +196,82 @@ async function plan(maxPerRun) {
   const actions = [];
 
   for (const { series, files } of wanted.values()) {
-    const shokoEntry = shokoIndex.byTvdb.get(Number(series.tvdbId));
-    if (!shokoEntry) {
-      // Nothing to link to. Shoko's series list only contains anime it has matched at least
-      // one file for, so a show where every file failed has no local AniDB record and no
-      // episodes to point at. Adding it needs an AniDB id, which only a title search could
-      // supply, and guessing that is exactly what the id bridges exist to avoid.
-      for (const file of files) {
-        skipped.push({
-          fileId: file.fileId,
-          reason: `Shoko has no series for ${series.title}, so add it there once and this will link afterwards`
-        });
-      }
-      continue;
-    }
-
-    const [episodes, detail] = await Promise.all([
-      sonarr.episodes(series.id),
-      shoko.fileDetail(shokoEntry.shokoId)
-    ]);
-
+    const episodes = await sonarr.episodes(series.id);
     const byTail = new Map();
     for (const episode of episodes) {
       const tail = shoko.pathTail(episode.relativePath);
       if (tail) byTail.set(tail, episode);
     }
 
+    // Seasons are resolved one at a time, because each is its own series in Shoko.
+    const seasons = new Map();
     for (const file of files) {
       const episode = byTail.get(shoko.pathTail(file.path));
-      const resolved = resolveEpisode(episode, detail.episodes);
-
-      if (!resolved.episode) {
-        skipped.push({ fileId: file.fileId, reason: resolved.reason });
+      if (!episode) {
+        skipped.push({ fileId: file.fileId, reason: "Sonarr has no episode with that file path" });
         continue;
       }
-      // Two files claiming the same episode in one sweep means something is ambiguous, so
-      // neither is linked.
-      if (actions.some(action => action.episodeId === resolved.episode.shokoEpisodeId)) {
-        skipped.push({ fileId: file.fileId, reason: "another file already claims that episode this run" });
+      if (!seasons.has(episode.seasonNumber)) seasons.set(episode.seasonNumber, []);
+      seasons.get(episode.seasonNumber).push({ file, episode });
+    }
+
+    for (const [seasonNumber, items] of seasons) {
+      const anchors = [];
+      for (const episode of episodes) {
+        if (episode.seasonNumber !== seasonNumber || !episode.relativePath) continue;
+        const known = index.byTail.get(shoko.pathTail(episode.relativePath));
+        for (const link of known?.links || []) {
+          if (!link.verified) continue;
+          for (const shokoEpisodeId of link.shokoEpisodeIds) {
+            anchors.push({ episodeNumber: episode.episodeNumber, shokoSeriesId: link.shokoSeriesId, shokoEpisodeId });
+          }
+        }
+      }
+
+      // A file AniDB matched in this very season beats the TVDB bridge, which is missing for
+      // some seasons and shared by all of them for others.
+      const shokoId = anchorSeries(anchors) ?? shokoIndex.byTvdb.get(Number(series.tvdbId))?.shokoId ?? null;
+      if (!shokoId) {
+        // Nothing to link to. Shoko's series list only contains anime it has matched at least
+        // one file for, so a show where every file failed has no local AniDB record and no
+        // episodes to point at. Adding it needs an AniDB id, which only a title search could
+        // supply, and guessing that is exactly what the id bridges exist to avoid.
+        for (const { file } of items) {
+          skipped.push({
+            fileId: file.fileId,
+            reason: `Shoko has no series for ${series.title}, so add it there once and this will link afterwards`
+          });
+        }
         continue;
       }
 
-      actions.push({
-        fileId: file.fileId,
-        episodeId: resolved.episode.shokoEpisodeId,
-        series: series.title,
-        sonarr: `S${String(episode.seasonNumber).padStart(2, "0")}E${String(episode.episodeNumber).padStart(2, "0")}`,
-        anidbEpisode: resolved.episode.episode,
-        airDate: episode.airDate
-      });
+      const detail = await shoko.fileDetail(shokoId);
+      const offset = numberingOffset(anchors.filter(anchor => anchor.shokoSeriesId === shokoId), detail.episodes);
+
+      for (const { file, episode } of items) {
+        const resolved = resolveEpisode(episode, detail.episodes, { offset });
+
+        if (!resolved.episode) {
+          skipped.push({ fileId: file.fileId, reason: resolved.reason });
+          continue;
+        }
+        // Two files claiming the same episode in one sweep means something is ambiguous, so
+        // neither is linked.
+        if (actions.some(action => action.episodeId === resolved.episode.shokoEpisodeId)) {
+          skipped.push({ fileId: file.fileId, reason: "another file already claims that episode this run" });
+          continue;
+        }
+
+        actions.push({
+          fileId: file.fileId,
+          episodeId: resolved.episode.shokoEpisodeId,
+          series: series.title,
+          sonarr: `S${String(episode.seasonNumber).padStart(2, "0")}E${String(episode.episodeNumber).padStart(2, "0")}`,
+          anidbEpisode: resolved.episode.episode,
+          airDate: episode.airDate,
+          via: resolved.via
+        });
+      }
     }
   }
 
