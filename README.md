@@ -66,6 +66,7 @@ Jellyseerr is required. Full instructions: [docs/getting-started.md](docs/gettin
 - [Configuration](docs/configuration.md): every setting and where values come from
 - [Requesting](docs/requesting.md): how a season is chosen and duplicates prevented
 - [Library and links](docs/library.md): what "missing" really means, Shoko repair, title matching
+- [Setting up Sonarr for anime](docs/anime-sonarr.md): download rules, custom formats and qBittorrent settings that keep duplicates and unreadable releases out
 - [Security](docs/security.md): the threat model and `HIKARI_TOKEN`
 - [API](docs/api.md) and [Homepage widget](docs/homepage-widget.md)
 - [Troubleshooting](docs/troubleshooting.md)

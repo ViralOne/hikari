@@ -136,7 +136,7 @@ export function classifyAnimeHealth({ animeRoot, torrents, animeHashes, series, 
     const folder = showOf(file.path);
     const owner = seriesByFolder.get(folderKey(folder)) || null;
     const key = owner ? `series:${owner.id}` : `folder:${folderKey(folder)}`;
-    const group = groups.get(key) || { show: owner ? owner.title : folder, series: seriesRef(owner, tags), files: 0, size: 0 };
+    const group = groups.get(key) || { show: owner ? owner.title : folder, folder, series: seriesRef(owner, tags), files: 0, size: 0 };
     group.files += 1;
     group.size += file.size ?? 0;
     groups.set(key, group);

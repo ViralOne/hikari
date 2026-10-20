@@ -165,6 +165,33 @@ export function pickByTitle(titles, candidates, titlesOf) {
   return hits.length === 1 ? hits[0] : null;
 }
 
+// Which Shoko series one Sonarr season is, its episodes, and the numbering offset AniDB proved
+// for it. Shared with the link dialog, which lets a person override the series (`shokoId`) but
+// otherwise proposes exactly what this sweep would do.
+export async function seasonContext({ series, seasonNumber, episodes, index, shokoIndex, shokoId = null }) {
+  const anchors = [];
+  for (const episode of episodes) {
+    if (episode.seasonNumber !== seasonNumber || !episode.relativePath) continue;
+    const known = index.byTail.get(shoko.pathTail(episode.relativePath));
+    for (const link of known?.links || []) {
+      if (!link.verified) continue;
+      for (const shokoEpisodeId of link.shokoEpisodeIds) {
+        anchors.push({ episodeNumber: episode.episodeNumber, shokoSeriesId: link.shokoSeriesId, shokoEpisodeId });
+      }
+    }
+  }
+
+  // A file AniDB matched in this very season beats the TVDB bridge, which is missing for some
+  // seasons and shared by all of them for others.
+  const chosen =
+    shokoId ?? anchorSeries(anchors) ?? (series ? shokoIndex.byTvdb.get(Number(series.tvdbId))?.shokoId : null) ?? null;
+  if (!chosen) return null;
+
+  const detail = await shoko.fileDetail(chosen);
+  const offset = numberingOffset(anchors.filter(anchor => anchor.shokoSeriesId === chosen), detail.episodes);
+  return { shokoId: chosen, detail, offset };
+}
+
 async function plan(maxPerRun) {
   const index = await shoko.fileIndex();
   const candidates = index.unlinkedFiles.filter(file => hoursSince(file.created) >= config.autoLink.graceHours);
@@ -216,22 +243,8 @@ async function plan(maxPerRun) {
     }
 
     for (const [seasonNumber, items] of seasons) {
-      const anchors = [];
-      for (const episode of episodes) {
-        if (episode.seasonNumber !== seasonNumber || !episode.relativePath) continue;
-        const known = index.byTail.get(shoko.pathTail(episode.relativePath));
-        for (const link of known?.links || []) {
-          if (!link.verified) continue;
-          for (const shokoEpisodeId of link.shokoEpisodeIds) {
-            anchors.push({ episodeNumber: episode.episodeNumber, shokoSeriesId: link.shokoSeriesId, shokoEpisodeId });
-          }
-        }
-      }
-
-      // A file AniDB matched in this very season beats the TVDB bridge, which is missing for
-      // some seasons and shared by all of them for others.
-      const shokoId = anchorSeries(anchors) ?? shokoIndex.byTvdb.get(Number(series.tvdbId))?.shokoId ?? null;
-      if (!shokoId) {
+      const context = await seasonContext({ series, seasonNumber, episodes, index, shokoIndex });
+      if (!context) {
         // Nothing to link to. Shoko's series list only contains anime it has matched at least
         // one file for, so a show where every file failed has no local AniDB record and no
         // episodes to point at. Adding it needs an AniDB id, which only a title search could
@@ -244,9 +257,7 @@ async function plan(maxPerRun) {
         }
         continue;
       }
-
-      const detail = await shoko.fileDetail(shokoId);
-      const offset = numberingOffset(anchors.filter(anchor => anchor.shokoSeriesId === shokoId), detail.episodes);
+      const { detail, offset } = context;
 
       for (const { file, episode } of items) {
         const resolved = resolveEpisode(episode, detail.episodes, { offset });

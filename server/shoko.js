@@ -28,7 +28,7 @@ export function version() {
 // plus its sizes, so this stays cheap.
 export function seriesIndex() {
   if (!enabled.shoko) {
-    return Promise.resolve({ byMal: new Map(), byAnidb: new Map(), byTmdb: new Map(), byTvdb: new Map() });
+    return Promise.resolve({ byMal: new Map(), byAnidb: new Map(), byTmdb: new Map(), byTvdb: new Map(), byShoko: new Map() });
   }
 
   // Paged walk of the whole library. Served stale within the grace and refreshed behind, because a
@@ -83,7 +83,8 @@ export function seriesIndex() {
       for (const tvdb of entry.tvdbIds) byTvdb.set(Number(tvdb), entry);
     }
 
-    return { byMal, byAnidb, byTmdb, byTvdb };
+    const byShoko = new Map(items.map(item => [item.IDs?.ID, byAnidb.get(Number(item.IDs?.AniDB))]).filter(([, entry]) => entry));
+    return { byMal, byAnidb, byTmdb, byTvdb, byShoko };
   }, { staleFor: 20 * 60 * 1000 });
 }
 
@@ -254,6 +255,46 @@ export async function linkFile(fileId, episodeIds) {
   return { linked: episodeIds.length };
 }
 
+// Deletes a file from disk through Shoko, which also drops its record. Only for extra copies.
+export async function deleteFile(fileId) {
+  await api(`/File/${Number(fileId)}?removeFiles=true&removeFolder=false`, { method: "DELETE" });
+  invalidate("shoko:");
+  return { deleted: true };
+}
+
+// Undoes a link, so the file is back among the unlinked. Metadata only, like linkFile.
+export async function unlinkFile(fileId) {
+  await api(`/File/${Number(fileId)}/Link`, { method: "DELETE" });
+  invalidate("shoko:");
+  return { unlinked: true };
+}
+
+// AniDB's title dump, searched locally by Shoko, so it costs AniDB nothing. Finds anime Shoko has
+// no series for yet, which is the one case the link dialog cannot solve with what Shoko has.
+export async function searchAnidb(query) {
+  const body = await api(
+    `/Series/AniDB/Search?query=${encodeURIComponent(query)}&pageSize=12&includeTitles=false`
+  );
+  return (body.List || []).map(item => ({
+    anidbId: item.ID,
+    shokoId: item.ShokoID ?? null,
+    title: item.Title,
+    type: item.Type || null,
+    airDate: item.AirDate ?? null,
+    episodes: item.EpisodeCount ?? null
+  }));
+}
+
+// Creates Shoko's series entry for an AniDB anime and returns its id, or null while AniDB is still
+// being asked. One request per click of a person, so it stays well inside AniDB's rate limits.
+export async function createSeries(anidbId) {
+  const id = Number(anidbId);
+  await api(`/Series/AniDB/${id}/Refresh?force=true&createSeriesEntry=true&immediate=true`, { method: "POST" });
+  invalidate("shoko:");
+  const series = await api(`/Series/AniDB/${id}/Series`).catch(() => null);
+  return series?.IDs?.ID ?? null;
+}
+
 // Release group and source per episode. Only worth fetching for a single opened title.
 export function fileDetail(shokoId) {
   return cached(`shoko:files:${shokoId}`, 30 * 60 * 1000, async () => {
@@ -277,6 +318,7 @@ export function fileDetail(shokoId) {
 
       episodes.push({
         episode: anidb.EpisodeNumber ?? null,
+        title: episode.Name || null,
         // Needed to link a file by hand, which is the only fix when AniDB has no record of
         // the release.
         shokoEpisodeId: episode.IDs?.ID ?? null,

@@ -96,6 +96,18 @@ export async function removeEntries(hashes) {
   }
 }
 
+// Removes torrents together with their data. Only for a copy the caller has already proven is an
+// extra (see files.js); everything else in Hikari removes entries and leaves the data alone.
+export async function removeWithData(hashes) {
+  if (!enabled.qbit) throw new Error("qBittorrent is not configured");
+  try {
+    await api("/torrents/delete", { hashes: hashes.join("|"), deleteFiles: "true" });
+    return { removed: hashes.length };
+  } finally {
+    invalidate("qbit:torrents");
+  }
+}
+
 const ACTIVE = new Set(["downloading", "metaDL", "stalledDL", "queuedDL", "forcedDL", "checkingDL", "allocating"]);
 
 export function version() {

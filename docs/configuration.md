@@ -19,6 +19,7 @@ Every variable goes in `.env`. Anything left blank disables its feature rather t
 | `QBIT_USER` | no | qBittorrent username |
 | `QBIT_PASS` | no | qBittorrent password |
 | `ANIME_ROOT` | no | Library path used to recognise a torrent as anime. Default `/data/anime` |
+| `WATCH_LANGUAGES` | no | Subtitle or audio languages that make a file watchable, as ISO 639-2 codes Sonarr reports (`eng`, `rum`, `jpn`). Files with none of them are listed in Anime health. Default `eng` |
 | `ANILIST_TOKEN` | no | AniList token. Discovery works without one; this adds your list status and progress, and the **Continue the story** and **Ready to start** rows |
 | `ANILIST_ALLOW_WRITES` | no | Default `false`. Set `true` to let Hikari change your AniList status and progress |
 | `ANILIST_SCROBBLE` | no | Default `false`. With writes allowed, moves your list forward as Jellyfin finishes episodes. Needs the webhook below |
