@@ -135,11 +135,19 @@ export function fileIndex() {
 
     for (const file of files) {
       const linked = (file.SeriesIDs || []).length > 0;
+      // What the file is linked to, and whether AniDB vouched for it by hash. A link made by hand
+      // (here or by Hikari) is "User" and proves nothing about how the two sides number a season.
+      const links = (file.SeriesIDs || []).map(xref => ({
+        shokoSeriesId: xref.SeriesID?.ID ?? null,
+        shokoEpisodeIds: (xref.EpisodeIDs || []).map(ep => ep.ID).filter(id => id != null),
+        verified: (xref.EpisodeIDs || []).length > 0 && xref.EpisodeIDs.every(ep => ep.Source && ep.Source !== "User")
+      }));
 
       for (const location of file.Locations || []) {
         const entry = {
           fileId: file.ID,
           linked,
+          links,
           size: file.Size ?? 0,
           path: location.RelativePath,
           // When Shoko first saw the file. The automatic linker uses it to leave new files

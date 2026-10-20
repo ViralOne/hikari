@@ -1,4 +1,4 @@
-import { episodeTitleKey, pickByTitle, resolveEpisode } from "../server/autolink.js";
+import { anchorSeries, episodeTitleKey, numberingOffset, pickByTitle, resolveEpisode } from "../server/autolink.js";
 import { basename, hoursSince, withinADay } from "../server/dates.js";
 
 // The automatic linker writes to Shoko, and a wrong link sticks an episode to the wrong file
@@ -124,6 +124,50 @@ console.log("\nsame-day tie broken by title");
 check("an AniDB episode's titles pick one Sonarr episode",
   pickByTitle(["Eingesperrt", "The Caged Beast"], [{ id: 1, title: "The Forgotten Past" }, { id: 2, title: "The Caged Beast" }], i => i.title)?.id === 2);
 check("the title key keeps words and drops punctuation", episodeTitleKey("  Bloodbath — in  Laos!? ") === "bloodbath in laos");
+
+console.log("\nnumbering proven by AniDB matches");
+
+// Reincarnated as a Sword S2: AniDB matched E02 by hash, its season entry has no TVDB id, and
+// TVDB's dates run a week behind AniDB's, so the air date points every file at the wrong episode.
+{
+  const anidb = [
+    ep(1, "2026-10-01", { shokoEpisodeId: 636 }),
+    ep(2, "2026-10-08", { shokoEpisodeId: 637, hasFile: true }),
+    ep(3, "2026-10-15", { shokoEpisodeId: 638 }),
+    ep(4, "2026-10-22", { shokoEpisodeId: 639 })
+  ];
+  const anchors = [{ episodeNumber: 2, shokoSeriesId: 34, shokoEpisodeId: 637 }];
+  const offset = numberingOffset(anchors, anidb);
+  check("one hash-matched episode proves the numbering", offset === 0);
+  check("the anchor names the Shoko series", anchorSeries(anchors) === 34);
+  check("the date alone would have picked the wrong episode",
+    resolveEpisode(sonarr("2026-10-22", 2, 3), anidb).episode?.episode === 4);
+  const third = resolveEpisode(sonarr("2026-10-22", 2, 3), anidb, { offset });
+  check("with the numbering, E03 goes to AniDB episode 3", third.episode?.shokoEpisodeId === 638 && third.via === "numbering");
+  check("E01 goes to episode 1 although no date lines up",
+    resolveEpisode(sonarr("2026-10-08", 2, 1), anidb, { offset }).episode?.shokoEpisodeId === 636);
+  check("an episode that already has a file is refused",
+    /already has a file/.test(resolveEpisode(sonarr("2026-10-15", 2, 2), anidb, { offset }).reason ?? ""));
+  check("a number AniDB does not have is refused",
+    /no episode 9/.test(resolveEpisode(sonarr("2026-11-26", 2, 9), anidb, { offset }).reason ?? ""));
+}
+{
+  // A split cour: AniDB starts the second half from 1 while Sonarr keeps counting.
+  const anidb = [ep(1, "2026-04-01", { shokoEpisodeId: 10, hasFile: true }), ep(2, "2026-04-08", { shokoEpisodeId: 11 })];
+  const offset = numberingOffset([{ episodeNumber: 13, shokoSeriesId: 5, shokoEpisodeId: 10 }], anidb);
+  check("an offset numbering is carried over", offset === -12 &&
+    resolveEpisode(sonarr("2026-04-08", 1, 14), anidb, { offset }).episode?.shokoEpisodeId === 11);
+}
+check("anchors that disagree prove nothing", numberingOffset(
+  [{ episodeNumber: 1, shokoEpisodeId: 1 }, { episodeNumber: 2, shokoEpisodeId: 3 }],
+  [ep(1, null, { shokoEpisodeId: 1 }), ep(3, null, { shokoEpisodeId: 3 })]) === null);
+check("no anchors prove nothing", numberingOffset([], [ep(1, null)]) === null);
+check("an anchor on an episode Shoko did not list proves nothing",
+  numberingOffset([{ episodeNumber: 1, shokoEpisodeId: 99 }], [ep(1, null, { shokoEpisodeId: 1 })]) === null);
+check("anchors in two Shoko series name neither",
+  anchorSeries([{ shokoSeriesId: 1 }, { shokoSeriesId: 2 }]) === null && anchorSeries([]) === null);
+check("without an offset the air date still decides",
+  resolveEpisode(sonarr("2026-08-03"), [ep(6, "2026-08-03")]).via === "air date");
 
 console.log(failures === 0 ? "\nall checks passed" : `\n${failures} check(s) failed`);
 process.exit(failures > 0 ? 1 : 0);
