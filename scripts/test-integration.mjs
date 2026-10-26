@@ -124,10 +124,11 @@ try {
   check("the body is the AniList entry", detail.id === 101 && detail.title?.display === "Frontier Saga");
   check("with the Sonarr match", detail.library?.id === 7, JSON.stringify(detail.library));
   check("with the Shoko entry", detail.shoko?.shokoId === 55, JSON.stringify(detail.shoko && { shokoId: detail.shoko.shokoId }));
+  // 4 have aired and all 4 are on disk; the other 8 are upcoming, which is not missing.
   check(
-    "Shoko's file list says 8 of 12 are missing",
-    detail.shoko?.files?.missing?.length === 8,
-    JSON.stringify(detail.shoko?.files?.missing)
+    "Shoko's file list counts nothing missing while the rest has not aired",
+    detail.shoko?.files?.missing?.length === 0 && detail.shoko?.files?.episodes?.length === 12,
+    JSON.stringify({ missing: detail.shoko?.files?.missing, listed: detail.shoko?.files?.episodes?.length })
   );
   check("with Jellyfin progress", detail.watch?.played === 2 && detail.watch?.episodes?.next?.episode === 3, JSON.stringify(detail.watch));
   check("with the list entry", detail.list?.status === "CURRENT" && detail.list?.progress === 2);

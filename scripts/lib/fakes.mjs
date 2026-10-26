@@ -710,7 +710,14 @@ export async function startFakes({ scenario } = {}) {
     if (route === "/Series") return paged(state.shoko.series, query);
 
     const episodes = route.match(/^\/Series\/(\d+)\/Episode$/);
-    if (episodes) return paged(state.shoko.episodes[Number(episodes[1])] || [], query);
+    if (episodes) {
+      // Like Shoko: episodes that have not aired are left out unless includeUnaired is asked for.
+      const today = new Date().toISOString().slice(0, 10);
+      const list = (state.shoko.episodes[Number(episodes[1])] || []).filter(
+        item => query.includeUnaired === "true" || !item.AniDB?.AirDate || item.AniDB.AirDate <= today
+      );
+      return paged(list, query);
+    }
 
     if (route === "/File") return paged(state.shoko.files, query);
     if (/^\/File\/\d+\/(Rescan|Link)$/.test(route) && method === "POST") return empty();

@@ -103,6 +103,12 @@ export async function buildPlan(folder, overrides = {}) {
     const override = Number(overrides[seasonNumber]) || null;
     const context = await seasonContext({ series, seasonNumber, episodes, index, shokoIndex, shokoId: override });
     const entry = context ? shokoIndex.byShoko.get(context.shokoId) : null;
+    // Same as auto-link: a file past the end of the episode list means Shoko's copy is stale.
+    let refreshing = false;
+    if (context && entry?.anidbId && items.some(({ episode }) =>
+      episode && Number.isInteger(context.offset) && !context.detail.episodes.some(item => item.episode === episode.episodeNumber + context.offset))) {
+      refreshing = (await shoko.refreshAnidbSeries(entry.anidbId).catch(() => ({}))).refreshed === true;
+    }
     const rows = proposeSeason(
       items.sort((a, b) => (a.episode?.episodeNumber ?? 0) - (b.episode?.episodeNumber ?? 0)),
       context?.detail.episodes ?? [],
@@ -129,7 +135,11 @@ export async function buildPlan(folder, overrides = {}) {
         size: row.file.size,
         sonarr: sonarrRef(row.episode),
         guess: row.guess,
-        reason: context ? row.reason : "pick the AniDB series for this season first"
+        reason: !context
+          ? "pick the AniDB series for this season first"
+          : /^AniDB has no episode/.test(row.reason || "")
+            ? `${row.reason}: a new episode Shoko has not heard of yet.${refreshing ? " Shoko is asking AniDB now; reopen this in a minute." : " Shoko asked AniDB recently; try again later."}`
+            : row.reason
       }))
     });
   }
