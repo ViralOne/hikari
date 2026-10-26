@@ -255,6 +255,21 @@ export async function linkFile(fileId, episodeIds) {
   return { linked: episodeIds.length };
 }
 
+// Asks AniDB for a series' current episode list. Shoko keeps its own copy and only refreshes it
+// now and then, so a new episode can be on disk before Shoko knows it exists. AniDB bans clients
+// that ask too often, so each series is asked at most once every 12 hours from here.
+const refreshedAt = new Map();
+export async function refreshAnidbSeries(anidbId) {
+  const id = Number(anidbId);
+  if (!Number.isInteger(id) || id <= 0) return { refreshed: false };
+  const last = refreshedAt.get(id) || 0;
+  if (Date.now() - last < 12 * 60 * 60 * 1000) return { refreshed: false, throttled: true };
+  refreshedAt.set(id, Date.now());
+  await api(`/Series/AniDB/${id}/Refresh?force=true&immediate=true`, { method: "POST" });
+  invalidate("shoko:");
+  return { refreshed: true };
+}
+
 // Deletes a file from disk through Shoko, which also drops its record. Only for extra copies.
 export async function deleteFile(fileId) {
   await api(`/File/${Number(fileId)}?removeFiles=true&removeFolder=false`, { method: "DELETE" });
@@ -299,7 +314,7 @@ export async function createSeries(anidbId) {
 export function fileDetail(shokoId) {
   return cached(`shoko:files:${shokoId}`, 30 * 60 * 1000, async () => {
     const body = await api(
-      `/Series/${shokoId}/Episode?pageSize=100&includeMissing=true&includeDataFrom=AniDB&includeFiles=true`
+      `/Series/${shokoId}/Episode?pageSize=100&includeMissing=true&includeUnaired=true&includeDataFrom=AniDB&includeFiles=true`
     );
 
     const episodes = [];
@@ -332,7 +347,12 @@ export function fileDetail(shokoId) {
       });
     }
 
-    const missing = episodes.filter(item => !item.hasFile).map(item => item.episode);
+    // Unaired episodes are listed (a release often lands the day before AniDB's Japanese air date,
+    // and the linker needs the episode to point at), but they are not "missing" yet.
+    const today = new Date().toISOString().slice(0, 10);
+    const missing = episodes
+      .filter(item => !item.hasFile && (!item.airDate || item.airDate <= today))
+      .map(item => item.episode);
 
     return {
       episodes,

@@ -258,11 +258,19 @@ async function plan(maxPerRun) {
         continue;
       }
       const { detail, offset } = context;
+      let refreshAsked = false;
 
       for (const { file, episode } of items) {
         const resolved = resolveEpisode(episode, detail.episodes, { offset });
 
         if (!resolved.episode) {
+          // A file past the end of Shoko's episode list is nearly always a new episode Shoko has not
+          // heard of yet. Ask AniDB once; the next sweep links it.
+          if (/^AniDB has no episode/.test(resolved.reason || "") && !refreshAsked) {
+            refreshAsked = true;
+            const anidbId = shokoIndex.byShoko?.get(context.shokoId)?.anidbId;
+            if (anidbId) await shoko.refreshAnidbSeries(anidbId).catch(() => null);
+          }
           skipped.push({ fileId: file.fileId, reason: resolved.reason });
           continue;
         }
