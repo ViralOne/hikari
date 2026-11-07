@@ -96,6 +96,13 @@ export async function removeEntries(hashes) {
   }
 }
 
+// The files inside one torrent: name, size, and priority (0 = not downloaded, which is what
+// qBittorrent's excluded file names set).
+export async function files(hash) {
+  const list = await api(`/torrents/files?hash=${encodeURIComponent(hash)}`);
+  return (list || []).map(file => ({ name: file.name, size: file.size ?? 0, priority: file.priority ?? 1 }));
+}
+
 // Removes torrents together with their data. Only for a copy the caller has already proven is an
 // extra (see files.js); everything else in Hikari removes entries and leaves the data alone.
 export async function removeWithData(hashes) {

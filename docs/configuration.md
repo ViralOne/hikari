@@ -19,6 +19,8 @@ Every variable goes in `.env`. Anything left blank disables its feature rather t
 | `QBIT_USER` | no | qBittorrent username |
 | `QBIT_PASS` | no | qBittorrent password |
 | `ANIME_ROOT` | no | Library path used to recognise a torrent as anime. Default `/data/anime` |
+| `FAKE_GUARD` | no | `false` turns off the fake release guard, which removes and blocklists queued torrents that hold no video, only executables or a bare archive, and lets Sonarr or Radarr search again. Default on |
+| `FAKE_GUARD_INTERVAL_MINUTES` | no | How often the guard checks the queues. Default `10` |
 | `WATCH_LANGUAGES` | no | Subtitle or audio languages that make a file watchable, as ISO 639-2 codes Sonarr reports (`eng`, `rum`, `jpn`). Files with none of them are listed in Anime health. Default `eng` |
 | `ANILIST_TOKEN` | no | AniList token. Discovery works without one; this adds your list status and progress, and the **Continue the story** and **Ready to start** rows |
 | `ANILIST_ALLOW_WRITES` | no | Default `false`. Set `true` to let Hikari change your AniList status and progress |

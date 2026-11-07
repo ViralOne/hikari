@@ -165,6 +165,20 @@ export async function queueForSeries(seriesId) {
     }));
 }
 
+// Every queue record as Sonarr has it, uncached, for the fake release guard.
+export async function queueRecords() {
+  const body = await api("/queue?pageSize=500&includeEpisode=true&includeSeries=true");
+  return body.records || [];
+}
+
+// Removes a download, blocklists the release so it is never grabbed again, and lets Sonarr search
+// for another one straight away. Only for releases proven fake (see guard.js).
+export async function rejectQueueItem(queueId) {
+  await api(`/queue/${Number(queueId)}?removeFromClient=true&blocklist=true&skipRedownload=false`, { method: "DELETE" });
+  invalidate("sonarr:queue");
+  return { rejected: true };
+}
+
 // Destructive, and the only destructive call in this module. Removes queue items and the partial
 // downloads behind them.
 //

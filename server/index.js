@@ -31,6 +31,7 @@ import * as health from "./health.js";
 import { pageTorrents } from "./activity.js";
 import * as linker from "./linker.js";
 import * as fileProblems from "./files.js";
+import * as guard from "./guard.js";
 import * as settings from "./settings.js";
 import * as auth from "./auth.js";
 import { withinADay } from "./dates.js";
@@ -1513,6 +1514,9 @@ async function fileProblemInputs() {
   return { series: anime, episodesBySeries, shokoFiles: [...index.byTail.values()], torrents, wanted: config.watchLanguages };
 }
 
+// What the fake release guard has removed recently. Read-only; the guard runs on its own timer.
+app.get("/api/guard", c => c.json(guard.status()));
+
 app.get("/api/activity/files", async c => {
   if (!enabled.sonarr || !enabled.shoko) return c.json({ error: "needs Sonarr and Shoko" }, 503);
   try {
@@ -1860,6 +1864,7 @@ serve({ fetch: app.fetch, port: config.port, hostname: config.host }, info => {
     );
   }
   autolink.start();
+  guard.start();
   warm.start(buildDiscover);
 
   // Detached, and only where it is read. refresh() resolves rather than throws, and the request
