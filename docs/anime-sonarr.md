@@ -107,9 +107,30 @@ so a Bluray-1080p release is still grabbed at once.
 |---|---|---|
 | Default save path | `/data/downloads`, incomplete in `/data/downloads/incomplete` | Never the library. |
 | Categories | `tv` (Sonarr), `radarr` (Radarr); save path empty | An empty category path means the default, inside downloads. |
-| Excluded file names | `*.exe *.scr *.lnk *.bat *.cmd *.msi *.com *.pif *.vbs *.js *.ps1 *.jar` | Fake "episodes" that are installers never land on disk. |
+| Excluded file names | `*.exe *.scr *.lnk *.bat *.cmd *.msi *.com *.pif *.vbs *.js *.ps1 *.jar *.zip *.7z *.iso *.apk *.dll *.hta *.reg *.wsf *.jse` | Fake "episodes" that are installers or archives never land on disk. |
 | Share limits | ratio 1.0 or 7 days, then **stop** | Without a limit, Sonarr's "remove completed" never fires and the client grows forever. |
 | Web UI password | only Sonarr, Radarr and Hikari should have it | Every app holding it can add torrents anywhere, including into the library. |
+
+## Fake releases
+
+Public trackers carry uploads named exactly like a real episode or film, `Show S01E05 Title 1080p WEB
+H264-GROUP`, that hold an installer (`.exe`, `.lnk`) or an archive (`.zip`) instead of a video. Nothing can
+tell them apart before downloading: the indexer shows only the name, and the name is copied from the real
+release. They appear before the real one does, often for episodes that have not aired yet.
+
+Three layers handle them:
+
+1. **qBittorrent's excluded file names** (above) keep the payload off the disk.
+2. **Anime-only trackers are searched only for anime.** Nyaa, Bangumi Moe, nekoBT and Shana Project have no TV
+   categories in Sonarr, only the anime category, so a regular show never searches them. Prowlarr's Sonarr
+   sync level is **Add and Remove Only**, so Prowlarr does not put the TV categories back.
+3. **Hikari's fake release guard** checks every queued torrent in Sonarr and Radarr every 10 minutes. One that
+   has no real video and only executables or a bare archive is removed, blocklisted, and Sonarr or Radarr
+   search again at once; if the real release is not out yet, their RSS sync grabs it when it appears.
+   `FAKE_GUARD=false` turns it off; `GET /api/guard` shows what it removed.
+
+Without layer 3 such a download sits in the queue as *No files found are eligible for import* forever, and the
+episode is never fetched.
 
 ## Shoko
 

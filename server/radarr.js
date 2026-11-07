@@ -3,11 +3,24 @@ import { cached } from "./cache.js";
 import { request } from "./http.js";
 import { normalize, similarity, usable } from "./match.js";
 
-function api(path) {
+function api(path, options = {}) {
   if (!enabled.radarr) throw new Error("Radarr is not configured");
   return request("radarr", `${config.radarr.url}/api/v3${path}`, {
-    headers: { "X-Api-Key": config.radarr.key }
+    ...options,
+    headers: { "X-Api-Key": config.radarr.key, ...(options.headers || {}) }
   });
+}
+
+// Every queue record, uncached, for the fake release guard.
+export async function queueRecords() {
+  const body = await api("/queue?pageSize=500&includeMovie=true");
+  return body.records || [];
+}
+
+// Removes, blocklists and lets Radarr search again. Only for releases proven fake (see guard.js).
+export async function rejectQueueItem(queueId) {
+  await api(`/queue/${Number(queueId)}?removeFromClient=true&blocklist=true&skipRedownload=false`, { method: "DELETE" });
+  return { rejected: true };
 }
 
 export function version() {

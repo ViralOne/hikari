@@ -66,6 +66,12 @@ export const config = {
   animeRoot: trim(process.env.ANIME_ROOT, "/data/anime"),
   // A file with none of these as subtitles or audio is flagged as unwatchable (ISO 639-2, as
   // Sonarr reports them). Comma separated: "eng,rum".
+  // Removes downloads that turn out to hold no video, only executables, and lets Sonarr or Radarr
+  // search again. FAKE_GUARD=false turns it off.
+  fakeGuard: {
+    enabled: (process.env.FAKE_GUARD || "true").trim().toLowerCase() !== "false",
+    intervalMinutes: Math.max(Number(process.env.FAKE_GUARD_INTERVAL_MINUTES) || 10, 2)
+  },
   watchLanguages: (process.env.WATCH_LANGUAGES || "eng").split(",").map(code => code.trim().toLowerCase()).filter(Boolean),
   // Login is checked against Jellyfin, so Hikari keeps no accounts of its own. Off by default,
   // because on with no Jellyfin configured the gate refuses every request: a security control that
