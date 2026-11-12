@@ -650,6 +650,8 @@ export type FileProblems = {
     kept: { name: string; size: number; subtitles: string } | null;
     torrent: { hash: string; name: string; category: string | null } | null;
   }[];
+  /** Files in a series folder Sonarr tracks nothing for: lost track (often a TVDB renumbering), never removable here. */
+  untracked: FileProblems["extraCopies"];
   unwatchable: {
     series: { id: number; title: string };
     episodeId: number;

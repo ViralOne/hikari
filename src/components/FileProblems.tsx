@@ -5,7 +5,7 @@ import { bytes } from "../format";
 // Second copies in series folders and files nobody can follow. Loaded on its own, after the rest of
 // the health report, because it reads every anime series' episode list from Sonarr.
 
-const EMPTY: FileProblems & { error?: string } = { extraCopies: [], unwatchable: [], wanted: [] };
+const EMPTY: FileProblems & { error?: string } = { extraCopies: [], untracked: [], unwatchable: [], wanted: [] };
 
 export function FileProblemsBoxes(props: { token: number }) {
   const [tick, setTick] = createSignal(0);
@@ -34,7 +34,7 @@ export function FileProblemsBoxes(props: { token: number }) {
 
   const remove = (copy: FileProblems["extraCopies"][number]) => {
     const what = copy.torrent ? "the file and its torrent" : "the file";
-    if (!confirm(`Delete ${what} from disk?\n\n${copy.name}\n\n${copy.kept ? `Sonarr keeps: ${copy.kept.name}` : "Sonarr has no other file for this episode."}`)) return;
+    if (!confirm(`Delete ${what} from disk?\n\n${copy.name}\n\n$Sonarr keeps: ${copy.kept?.name}`)) return;
     run(async () => {
       const result = await removeExtraCopy(copy.fileId);
       return `Removed ${result.removed}${result.torrent ? " and its torrent" : ""}.`;
@@ -52,7 +52,7 @@ export function FileProblemsBoxes(props: { token: number }) {
       <Show when={message()}>{m => <div class={`notice ${m().tone === "good" ? "info" : "bad"}`}>{m().text}</div>}</Show>
       <Show when={data().error}>{error => <div class="notice bad">Could not check the files: {error()}</div>}</Show>
 
-      <Show when={!data().error && data().extraCopies.length === 0 && data().unwatchable.length === 0}>
+      <Show when={!data().error && data().extraCopies.length === 0 && data().untracked.length === 0 && data().unwatchable.length === 0}>
         <div class="dim" style={{ "font-size": "12px" }}>
           Files: every episode has one copy, with {data().wanted.join("/") || "wanted"} subtitles or audio.
         </div>
@@ -79,14 +79,43 @@ export function FileProblemsBoxes(props: { token: number }) {
                         Extra: {copy.name} · {bytes(copy.size)}
                         {copy.torrent ? ` · torrent in ${copy.torrent.category ?? "no category"}` : ""}
                       </div>
-                      <div class="link-meta truncate">
-                        {copy.kept ? `Sonarr keeps: ${copy.kept.name} · ${bytes(copy.kept.size)}` : "Sonarr has no file for this episode"}
-                      </div>
+                      <div class="link-meta truncate">Sonarr keeps: {copy.kept?.name} · {bytes(copy.kept?.size ?? 0)}</div>
                     </td>
                     <td class="num">
                       <button class="btn tiny" disabled={busy()} onClick={() => remove(copy)}>
                         Remove copy
                       </button>
+                    </td>
+                  </tr>
+                )}
+              </For>
+            </tbody>
+          </table>
+        </div>
+      </Show>
+
+      <Show when={data().untracked.length > 0}>
+        <div class="box">
+          <div class="box-head">
+            <span class="box-title">Sonarr lost track of these · {data().untracked.length}</span>
+          </div>
+          <div class="dim" style={{ "font-size": "12px" }}>
+            Files in a series folder that Sonarr has no record of, and no other copy of the episode. Usually TVDB renumbered
+            the season and Sonarr dropped the old episodes. They are the only copies, so nothing here deletes them: open the
+            series in Sonarr, Manual Import, and match them to the new episodes.
+          </div>
+          <table class="table">
+            <tbody>
+              <For each={data().untracked}>
+                {file => (
+                  <tr>
+                    <td class="fill">
+                      <div class="truncate">
+                        {file.series.title} {file.episode ? `· ${file.episode}` : ""}
+                      </div>
+                      <div class="link-meta truncate" title={file.name}>
+                        {file.name} · {bytes(file.size)}
+                      </div>
                     </td>
                   </tr>
                 )}

@@ -1537,6 +1537,9 @@ app.post("/api/activity/files/remove-copy", async c => {
   const report = fileProblems.findFileProblems(await fileProblemInputs());
   const copy = report.extraCopies.find(item => item.fileId === fileId);
   if (!copy) return c.json({ error: "that file is no longer an extra copy, so it was left alone" }, 409);
+  // findFileProblems only lists a file here when Sonarr tracks another copy of the same episode;
+  // checked again because deleting the only copy is the one mistake this button must never make.
+  if (!copy.kept) return c.json({ error: "Sonarr has no other file for this episode, so this is not a second copy" }, 409);
   try {
     if (copy.torrent) await qbit.removeWithData([copy.torrent.hash]);
     await shoko.deleteFile(fileId).catch(err => {

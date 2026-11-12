@@ -52,6 +52,7 @@ export function findFileProblems({ series, episodesBySeries, shokoFiles, torrent
   }
 
   const extraCopies = [];
+  const untracked = [];
   const seen = new Set();
   for (const file of shokoFiles) {
     if (seen.has(file.fileId)) continue;
@@ -69,7 +70,11 @@ export function findFileProblems({ series, episodesBySeries, shokoFiles, torrent
       : null;
     const torrent = torrentByName.get(nameOf(file.path).toLowerCase()) || null;
 
-    extraCopies.push({
+    // Without a copy Sonarr does track for the same episode, this is not a second copy: Sonarr has
+    // lost track of the file. That happens when TVDB renumbers a season (Link Click's Season 4 became
+    // Season 3, and Sonarr dropped every episode record, so the whole season looked like extras and
+    // three episodes were deleted). Those are listed apart and never offered for removal.
+    const entry = {
       fileId: file.fileId,
       name: nameOf(file.path),
       size: file.size ?? 0,
@@ -79,7 +84,8 @@ export function findFileProblems({ series, episodesBySeries, shokoFiles, torrent
       // The copy Sonarr does track for the same episode, so the panel can show what stays.
       kept: kept ? { name: nameOf(kept.relativePath), size: kept.size ?? 0, subtitles: kept.subtitles || "" } : null,
       torrent: torrent ? { hash: torrent.hash, name: torrent.name, category: torrent.category } : null
-    });
+    };
+    (kept ? extraCopies : untracked).push(entry);
   }
 
   const unwatchable = [];
@@ -100,6 +106,7 @@ export function findFileProblems({ series, episodesBySeries, shokoFiles, torrent
 
   return {
     extraCopies: extraCopies.sort((a, b) => b.size - a.size),
+    untracked: untracked.sort((a, b) => a.series.title.localeCompare(b.series.title) || a.name.localeCompare(b.name)),
     unwatchable: unwatchable.sort((a, b) => a.series.title.localeCompare(b.series.title) || a.episode.localeCompare(b.episode)),
     wanted
   };
