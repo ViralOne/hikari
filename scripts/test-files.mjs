@@ -50,8 +50,21 @@ check("a folder no Sonarr series owns is left to the unmanaged-folders check",
   run({ shokoFiles: [shoko(9, "Tetsunabe no Jan/Iron.Wok.Jan.S01E08.mkv")] }).extraCopies.length === 0);
 {
   const report = run({ shokoFiles: [shoko(3, "Skeleton Knight in Another World/Season 2/[SubsPlease] Gaikotsu S2 - 09 (1080p).mkv")] });
-  check("an extra copy of an episode Sonarr has no file for still shows, without a kept copy",
-    report.extraCopies.length === 1 && report.extraCopies[0].kept === null);
+  check("a file for an episode Sonarr has no other copy of is never an extra copy",
+    report.extraCopies.length === 0 && report.untracked.length === 1);
+}
+{
+  // Link Click: TVDB folded Season 4 into Season 3, Sonarr dropped the episodes, and every file in
+  // the folder looked like an extra copy. Three episodes were deleted that way.
+  const report = run({
+    episodesBySeries: new Map([[1, []]]),
+    shokoFiles: [
+      shoko(5, "Skeleton Knight in Another World/Season 4/Show - S04E01 - The Forgotten Past WEBDL-1080p.mkv", { size: 1370 }),
+      shoko(6, "Skeleton Knight in Another World/Season 4/Show - S04E02 - The Caged Beast WEBDL-1080p.mkv", { size: 1378 })
+    ]
+  });
+  check("a season Sonarr lost track of is listed as untracked, not as removable copies",
+    report.extraCopies.length === 0 && report.untracked.length === 2);
 }
 check("one Shoko file seen at two locations is reported once", run({
   shokoFiles: [shoko(4, "Skeleton Knight in Another World/Season 2/x - 07.mkv"), shoko(4, "Skeleton Knight in Another World/Season 2/x - 07.mkv")]
