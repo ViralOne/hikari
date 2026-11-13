@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.1.5",
-    "hono": "^4.13.14"
+    "hono": "^4.13.18"
   },
   "devDependencies": {
     "@fontsource-variable/onest": "^5.3.1",
