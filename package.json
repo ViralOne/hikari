@@ -20,7 +20,7 @@
     "fixtures:cours": "node --env-file-if-exists=.env scripts/build-cour-fixtures.mjs"
   },
   "dependencies": {
-    "@hono/node-server": "^2.1.5",
+    "@hono/node-server": "^2.1.6",
     "hono": "^4.13.14"
   },
   "devDependencies": {
