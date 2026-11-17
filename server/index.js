@@ -1511,7 +1511,15 @@ async function fileProblemInputs() {
     const lists = await Promise.all(batch.map(item => sonarr.episodes(item.id).catch(() => [])));
     batch.forEach((item, at) => episodesBySeries.set(item.id, lists[at]));
   }
-  return { series: anime, episodesBySeries, shokoFiles: [...index.byTail.values()], torrents, wanted: config.watchLanguages };
+  // AniDB episode numbers for every Shoko series a hand link points into, for the suspicious-links check.
+  const shokoFiles = [...index.byTail.values()];
+  const handSeries = new Set(shokoFiles.flatMap(file => (file.links || []).filter(link => !link.verified).map(link => link.shokoSeriesId)).filter(Boolean));
+  const shokoEpisodes = new Map();
+  for (const id of handSeries) {
+    const detail = await shoko.fileDetail(id).catch(() => null);
+    if (detail) shokoEpisodes.set(id, detail.episodes);
+  }
+  return { series: anime, episodesBySeries, shokoFiles, torrents, wanted: config.watchLanguages, shokoEpisodes };
 }
 
 // What the fake release guard has removed recently. Read-only; the guard runs on its own timer.

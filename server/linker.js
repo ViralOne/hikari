@@ -32,6 +32,11 @@ export function proposeSeason(items, anidbEpisodes, offset) {
       const resolved = resolveEpisode(episode, anidbEpisodes, { offset });
       if (resolved.episode) {
         guess = { shokoEpisodeId: resolved.episode.shokoEpisodeId, via: resolved.via };
+      } else if (resolved.numberTwin) {
+        // Auto-link refuses when date and number disagree; a person is shown the number, since
+        // a shifted date is the usual reason, and the reason says what disagreed.
+        guess = { shokoEpisodeId: resolved.numberTwin.shokoEpisodeId, via: "episode number" };
+        reason = resolved.reason;
       } else {
         // Weaker than the rules auto-link uses, which is why only a person gets to accept it.
         const byTitle = pickByTitle(episode.title, unfilled, item => item.titles);

@@ -140,8 +140,10 @@ console.log("\nnumbering proven by AniDB matches");
   const offset = numberingOffset(anchors, anidb);
   check("one hash-matched episode proves the numbering", offset === 0);
   check("the anchor names the Shoko series", anchorSeries(anchors) === 34);
-  check("the date alone would have picked the wrong episode",
-    resolveEpisode(sonarr("2026-10-22", 2, 3), anidb).episode?.episode === 4);
+  // Without the numbering the date alone used to pick AniDB 4 here; now it notices AniDB 3 is empty
+  // a week away and refuses rather than link the wrong episode.
+  const dateOnly = resolveEpisode(sonarr("2026-10-22", 2, 3), anidb);
+  check("the date alone no longer picks the wrong episode", !dateOnly.episode && dateOnly.numberTwin?.episode === 3);
   const third = resolveEpisode(sonarr("2026-10-22", 2, 3), anidb, { offset });
   check("with the numbering, E03 goes to AniDB episode 3", third.episode?.shokoEpisodeId === 638 && third.via === "numbering");
   check("E01 goes to episode 1 although no date lines up",
@@ -168,6 +170,29 @@ check("anchors in two Shoko series name neither",
   anchorSeries([{ shokoSeriesId: 1 }, { shokoSeriesId: 2 }]) === null && anchorSeries([]) === null);
 check("without an offset the air date still decides",
   resolveEpisode(sonarr("2026-08-03"), [ep(6, "2026-08-03")]).via === "air date");
+
+console.log("\nair date against episode number");
+
+// Goblin: AniDB put the double premiere on one day, TVDB a week apart, so from E02 on every AniDB
+// date is a week earlier than Sonarr's while the numbers agree. By date alone E06 went to AniDB 7.
+{
+  const anidb = [ep(5, "2026-10-26", { hasFile: true }), ep(6, "2026-11-02"), ep(7, "2026-11-09"), ep(8, "2026-11-16")];
+  const r = resolveEpisode(sonarr("2026-11-09", 1, 6), anidb);
+  check("date and number disagreeing refuses instead of linking the next episode",
+    !r.episode && r.numberTwin?.episode === 6 && /air date points at AniDB episode 7/.test(r.reason), JSON.stringify(r));
+}
+check("an agreeing date and number still links",
+  resolveEpisode(sonarr("2026-11-02", 1, 6), [ep(6, "2026-11-02"), ep(7, "2026-11-09")]).episode?.episode === 6);
+{
+  // Split cour: AniDB restarts at 1, Sonarr keeps counting, and there is no AniDB 14 nearby.
+  const r = resolveEpisode(sonarr("2026-04-08", 1, 14), [ep(1, "2026-04-01", { hasFile: true }), ep(2, "2026-04-08")]);
+  check("a split cour still links by date when no same-number episode is near", r.episode?.episode === 2);
+}
+{
+  // The same-number episode exists but aired months earlier: a different cour, not a shifted date.
+  const r = resolveEpisode(sonarr("2026-10-08", 2, 2), [ep(2, "2026-04-08"), ep(4, "2026-10-08")]);
+  check("a same-number episode far away in time does not block", r.episode?.episode === 4);
+}
 
 console.log(failures === 0 ? "\nall checks passed" : `\n${failures} check(s) failed`);
 process.exit(failures > 0 ? 1 : 0);

@@ -1,11 +1,11 @@
 import { createMemo, createSignal, For, Loading, Show } from "solid-js";
-import { getFileProblems, removeExtraCopy, replaceEpisodes, type FileProblems } from "../api";
+import { getFileProblems, removeExtraCopy, replaceEpisodes, undoLink, type FileProblems } from "../api";
 import { bytes } from "../format";
 
 // Second copies in series folders and files nobody can follow. Loaded on its own, after the rest of
 // the health report, because it reads every anime series' episode list from Sonarr.
 
-const EMPTY: FileProblems & { error?: string } = { extraCopies: [], untracked: [], unwatchable: [], wanted: [] };
+const EMPTY: FileProblems & { error?: string } = { extraCopies: [], suspiciousLinks: [], untracked: [], unwatchable: [], wanted: [] };
 
 export function FileProblemsBoxes(props: { token: number }) {
   const [tick, setTick] = createSignal(0);
@@ -52,7 +52,7 @@ export function FileProblemsBoxes(props: { token: number }) {
       <Show when={message()}>{m => <div class={`notice ${m().tone === "good" ? "info" : "bad"}`}>{m().text}</div>}</Show>
       <Show when={data().error}>{error => <div class="notice bad">Could not check the files: {error()}</div>}</Show>
 
-      <Show when={!data().error && data().extraCopies.length === 0 && data().untracked.length === 0 && data().unwatchable.length === 0}>
+      <Show when={!data().error && data().extraCopies.length === 0 && data().suspiciousLinks.length === 0 && data().untracked.length === 0 && data().unwatchable.length === 0}>
         <div class="dim" style={{ "font-size": "12px" }}>
           Files: every episode has one copy, with {data().wanted.join("/") || "wanted"} subtitles or audio.
         </div>
@@ -84,6 +84,40 @@ export function FileProblemsBoxes(props: { token: number }) {
                     <td class="num">
                       <button class="btn tiny" disabled={busy()} onClick={() => remove(copy)}>
                         Remove copy
+                      </button>
+                    </td>
+                  </tr>
+                )}
+              </For>
+            </tbody>
+          </table>
+        </div>
+      </Show>
+
+      <Show when={data().suspiciousLinks.length > 0}>
+        <div class="box">
+          <div class="box-head">
+            <span class="box-title">Links that look wrong · {data().suspiciousLinks.length}</span>
+          </div>
+          <div class="dim" style={{ "font-size": "12px" }}>
+            Linked by hand to a different AniDB episode than Sonarr's number, while the AniDB episode with that number is
+            still empty. Usually the air dates were shifted. Undo puts the file back under "Not in Jellyfin", where Link…
+            suggests the matching number.
+          </div>
+          <table class="table">
+            <tbody>
+              <For each={data().suspiciousLinks}>
+                {link => (
+                  <tr>
+                    <td class="fill">
+                      <div class="truncate">
+                        {link.series.title} · {link.episode}: linked to AniDB {link.linkedTo}, expected {link.expected}
+                      </div>
+                      <div class="link-meta truncate" title={link.name}>{link.name}</div>
+                    </td>
+                    <td class="num">
+                      <button class="btn tiny" disabled={busy()} onClick={() => run(async () => { await undoLink(link.fileId); return `Link undone for ${link.series.title} ${link.episode}. Relink it from Not in Jellyfin.`; })}>
+                        Undo link
                       </button>
                     </td>
                   </tr>

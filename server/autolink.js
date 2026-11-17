@@ -110,7 +110,29 @@ export function resolveEpisode(sonarrEpisode, anidbEpisodes, { offset = null } =
   }
   if (!target.shokoEpisodeId) return { reason: "Shoko reported no episode id" };
 
+  // The date can be a week off while the numbers still agree: AniDB listed Goblin's double premiere
+  // on one day, TVDB a week apart, so every later date pointed at the next episode and Sonarr's E06
+  // was linked to AniDB 7. When the episode with Sonarr's own number is right there, empty, within
+  // a week, the two signals disagree, and a wrong link is worse than none.
+  if (target.episode !== sonarrEpisode.episodeNumber) {
+    const twin = (anidbEpisodes || []).find(
+      item => item.episode === sonarrEpisode.episodeNumber && !item.hasFile && withinDays(item.airDate, sonarrEpisode.airDate, 8)
+    );
+    if (twin) {
+      return {
+        reason: `the air date points at AniDB episode ${target.episode} but the episode number at ${twin.episode}`,
+        numberTwin: twin
+      };
+    }
+  }
+
   return { episode: target, via: "air date" };
+}
+
+function withinDays(a, b, days) {
+  const left = Date.parse(`${a}T00:00:00Z`);
+  const right = Date.parse(`${b}T00:00:00Z`);
+  return Number.isFinite(left) && Number.isFinite(right) && Math.abs(left - right) <= days * 86400000;
 }
 
 // Anchors are the episodes of one Sonarr season whose files AniDB matched by hash:
@@ -183,8 +205,11 @@ export async function seasonContext({ series, seasonNumber, episodes, index, sho
 
   // A file AniDB matched in this very season beats the TVDB bridge, which is missing for some
   // seasons and shared by all of them for others.
-  const chosen =
-    shokoId ?? anchorSeries(anchors) ?? (series ? shokoIndex.byTvdb.get(Number(series.tvdbId))?.shokoId : null) ?? null;
+  // The TVDB fallback only when exactly one Shoko series carries that id. Link Click's last season
+  // and its Bridon Arc spin-off share one, and picking either is a guess.
+  const byTvdb = series ? shokoIndex.byTvdbAll?.get(Number(series.tvdbId)) || [] : [];
+  const fallback = byTvdb.length === 1 ? byTvdb[0].shokoId : null;
+  const chosen = shokoId ?? anchorSeries(anchors) ?? fallback ?? null;
   if (!chosen) return null;
 
   const detail = await shoko.fileDetail(chosen);
