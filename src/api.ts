@@ -583,7 +583,7 @@ export function clearMissingTorrents(hashes: string[]) {
   });
 }
 
-export type LinkVia = "numbering" | "air date" | "title";
+export type LinkVia = "numbering" | "air date" | "title" | "episode number";
 
 export type LinkPlanSeason = {
   seasonNumber: number | null;
@@ -650,6 +650,8 @@ export type FileProblems = {
     kept: { name: string; size: number; subtitles: string } | null;
     torrent: { hash: string; name: string; category: string | null } | null;
   }[];
+  /** Hand links that contradict Sonarr's numbering while the matching AniDB episode is empty. */
+  suspiciousLinks: { fileId: number; series: { id: number; title: string }; episode: string; name: string; linkedTo: number; expected: number }[];
   /** Files in a series folder Sonarr tracks nothing for: lost track (often a TVDB renumbering), never removable here. */
   untracked: FileProblems["extraCopies"];
   unwatchable: {

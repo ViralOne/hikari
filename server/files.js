@@ -43,7 +43,7 @@ export function watchable(episode, wanted) {
 // `series` are Sonarr's anime series, `episodesBySeries` maps a series id to its episodes (with the
 // file fields from sonarr.episodes), `shokoFiles` is every file Shoko knows (one entry per
 // location), `torrents` is qBittorrent's list.
-export function findFileProblems({ series, episodesBySeries, shokoFiles, torrents, wanted }) {
+export function findFileProblems({ series, episodesBySeries, shokoFiles, torrents, wanted, shokoEpisodes = new Map() }) {
   const byFolder = new Map(series.map(item => [folderKey(item.path), item]));
   const torrentByName = new Map();
   for (const torrent of torrents) {
@@ -88,6 +88,38 @@ export function findFileProblems({ series, episodesBySeries, shokoFiles, torrent
     (kept ? extraCopies : untracked).push(entry);
   }
 
+  // Hand links that contradict Sonarr's numbering. A file Sonarr has as E06, linked by hand to AniDB
+  // 7, while AniDB's episode 6 sits empty: the Goblin case, where shifted air dates put every file
+  // one episode late. AniDB matches by hash are trusted and never listed. Split-cour numbering
+  // (Bleach S17E50 -> AniDB 10) is not flagged, because there is no empty AniDB 50 to point at.
+  const suspiciousLinks = [];
+  const fileByTail = new Map();
+  for (const file of shokoFiles) fileByTail.set(tailOf(file.path), file);
+  for (const item of series) {
+    for (const episode of episodesBySeries.get(item.id) || []) {
+      if (!episode.relativePath) continue;
+      const file = fileByTail.get(tailOf(episode.relativePath));
+      if (!file?.linked || !Array.isArray(file.links) || file.links.some(link => link.verified)) continue;
+      for (const link of file.links) {
+        const list = shokoEpisodes.get(link.shokoSeriesId) || [];
+        for (const shokoEpisodeId of link.shokoEpisodeIds) {
+          const linked = list.find(entry => entry.shokoEpisodeId === shokoEpisodeId);
+          if (!linked || linked.episode === episode.episodeNumber) continue;
+          const sameNumber = list.find(entry => entry.episode === episode.episodeNumber && !entry.hasFile);
+          if (!sameNumber) continue;
+          suspiciousLinks.push({
+            fileId: file.fileId,
+            series: { id: item.id, title: item.title },
+            episode: label(episode.seasonNumber, episode.episodeNumber),
+            name: nameOf(episode.relativePath),
+            linkedTo: linked.episode,
+            expected: sameNumber.episode
+          });
+        }
+      }
+    }
+  }
+
   const unwatchable = [];
   for (const item of series) {
     for (const episode of episodesBySeries.get(item.id) || []) {
@@ -106,6 +138,7 @@ export function findFileProblems({ series, episodesBySeries, shokoFiles, torrent
 
   return {
     extraCopies: extraCopies.sort((a, b) => b.size - a.size),
+    suspiciousLinks,
     untracked: untracked.sort((a, b) => a.series.title.localeCompare(b.series.title) || a.name.localeCompare(b.name)),
     unwatchable: unwatchable.sort((a, b) => a.series.title.localeCompare(b.series.title) || a.episode.localeCompare(b.episode)),
     wanted

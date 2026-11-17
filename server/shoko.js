@@ -28,7 +28,7 @@ export function version() {
 // plus its sizes, so this stays cheap.
 export function seriesIndex() {
   if (!enabled.shoko) {
-    return Promise.resolve({ byMal: new Map(), byAnidb: new Map(), byTmdb: new Map(), byTvdb: new Map(), byShoko: new Map() });
+    return Promise.resolve({ byMal: new Map(), byAnidb: new Map(), byTmdb: new Map(), byTvdb: new Map(), byTvdbAll: new Map(), byShoko: new Map() });
   }
 
   // Paged walk of the whole library. Served stale within the grace and refreshed behind, because a
@@ -48,6 +48,8 @@ export function seriesIndex() {
     const byAnidb = new Map();
     const byTmdb = new Map();
     const byTvdb = new Map();
+    // Every series per TVDB id: AniDB gives each season its own entry, and they often share one id.
+    const byTvdbAll = new Map();
 
     for (const item of items) {
       const ids = item.IDs || {};
@@ -80,11 +82,14 @@ export function seriesIndex() {
       for (const mal of entry.malIds) byMal.set(Number(mal), entry);
       if (entry.anidbId) byAnidb.set(Number(entry.anidbId), entry);
       for (const tmdb of entry.tmdbShowIds) byTmdb.set(Number(tmdb), entry);
-      for (const tvdb of entry.tvdbIds) byTvdb.set(Number(tvdb), entry);
+      for (const tvdb of entry.tvdbIds) {
+        byTvdb.set(Number(tvdb), entry);
+        byTvdbAll.set(Number(tvdb), [...(byTvdbAll.get(Number(tvdb)) || []), entry]);
+      }
     }
 
     const byShoko = new Map(items.map(item => [item.IDs?.ID, byAnidb.get(Number(item.IDs?.AniDB))]).filter(([, entry]) => entry));
-    return { byMal, byAnidb, byTmdb, byTvdb, byShoko };
+    return { byMal, byAnidb, byTmdb, byTvdb, byTvdbAll, byShoko };
   }, { staleFor: 20 * 60 * 1000 });
 }
 

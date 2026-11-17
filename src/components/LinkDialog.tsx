@@ -23,7 +23,8 @@ type Plan = LinkPlan & { error?: string };
 const VIA_LABEL: Record<LinkVia, string> = {
   numbering: "numbering AniDB confirmed",
   "air date": "same air date",
-  title: "same title"
+  title: "same title",
+  "episode number": "same episode number (the air dates disagree, check it)"
 };
 
 const seasonLabel = (season: number | null) => (season == null ? "Unsorted files" : `Season ${season}`);

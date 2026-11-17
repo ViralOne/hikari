@@ -70,6 +70,26 @@ check("one Shoko file seen at two locations is reported once", run({
   shokoFiles: [shoko(4, "Skeleton Knight in Another World/Season 2/x - 07.mkv"), shoko(4, "Skeleton Knight in Another World/Season 2/x - 07.mkv")]
 }).extraCopies.length === 1);
 
+console.log("suspicious hand links");
+{
+  const goblin = [{ id: 2, title: "Goblin", path: "/data/anime/Goblin" }];
+  const eps = [ep(6, "Season 1/Goblin - S01E06.mkv", { seasonNumber: 1 }), ep(50, "Season 1/Goblin - S01E50.mkv", { seasonNumber: 1 })];
+  const files = [
+    shoko(474, "Goblin/Season 1/Goblin - S01E06.mkv", { links: [{ shokoSeriesId: 37, shokoEpisodeIds: [707], verified: false }] }),
+    shoko(475, "Goblin/Season 1/Goblin - S01E50.mkv", { links: [{ shokoSeriesId: 37, shokoEpisodeIds: [710], verified: false }] })
+  ];
+  const shokoEpisodes = new Map([[37, [
+    { shokoEpisodeId: 706, episode: 6, hasFile: false }, { shokoEpisodeId: 707, episode: 7, hasFile: true }, { shokoEpisodeId: 710, episode: 10, hasFile: true }
+  ]]]);
+  const report = findFileProblems({ series: goblin, episodesBySeries: new Map([[2, eps]]), shokoFiles: files, torrents: [], wanted: ["eng"], shokoEpisodes });
+  check("E06 hand-linked to AniDB 7 while AniDB 6 is empty is flagged",
+    report.suspiciousLinks.length === 1 && report.suspiciousLinks[0].fileId === 474 && report.suspiciousLinks[0].expected === 6, JSON.stringify(report.suspiciousLinks));
+  check("a split-cour number with no empty same-number episode is not flagged", !report.suspiciousLinks.some(x => x.fileId === 475));
+  const verified = findFileProblems({ series: goblin, episodesBySeries: new Map([[2, eps]]), torrents: [], wanted: ["eng"], shokoEpisodes,
+    shokoFiles: [shoko(474, "Goblin/Season 1/Goblin - S01E06.mkv", { links: [{ shokoSeriesId: 37, shokoEpisodeIds: [707], verified: true }] })] });
+  check("a link AniDB made by hash is never second-guessed", verified.suspiciousLinks.length === 0);
+}
+
 console.log("subtitles");
 check("English subtitles are watchable", watchable({ subtitles: "eng/ara", audioLanguages: "jpn" }, ["eng"]) === true);
 check("an English dub without subtitles is watchable", watchable({ subtitles: "", audioLanguages: "jpn/eng" }, ["eng"]) === true);

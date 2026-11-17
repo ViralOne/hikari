@@ -52,6 +52,12 @@ console.log("guesses");
   const rows = proposeSeason([{ file: file(1), episode: sonarr(2, "2026-10-08") }], [anidb(2, "2026-10-08", { hasFile: true })], 0);
   check("an episode that already has a file is never guessed, and the row says it is a second copy", rows[0].guess === null && /second copy/.test(rows[0].reason));
 }
+{
+  const rows = proposeSeason([{ file: file(6), episode: sonarr(6, "2026-11-09") }],
+    [anidb(6, "2026-11-02"), anidb(7, "2026-11-09")], null);
+  check("when date and number disagree the dialog offers the same number, and says why",
+    rows[0].guess?.shokoEpisodeId === 606 && rows[0].guess.via === "episode number" && /air date points/.test(rows[0].reason));
+}
 check("no AniDB episodes at all is handled", proposeSeason([{ file: file(1), episode: sonarr(1, "2026-10-08") }], undefined, null)[0].guess === null);
 
 console.log(failures === 0 ? "\nall checks passed" : `\n${failures} check(s) failed`);
