@@ -650,6 +650,10 @@ export type FileProblems = {
     kept: { name: string; size: number; subtitles: string } | null;
     torrent: { hash: string; name: string; category: string | null } | null;
   }[];
+  /** Files whose title names another, empty episode of the series: a TVDB renumbering. Re-mapped, never deleted. */
+  misplaced: { series: { id: number; title: string }; path: string; title: string; from: string | null; to: string; toEpisodeId: number }[];
+  /** Files whose title matches no episode of the series: the wrong content was imported. */
+  wrongEpisode: { series: { id: number; title: string }; episodeId: number; episodeFileId: number | null; episode: string; sonarrTitle: string; fileTitle: string; release: string }[];
   /** Hand links that contradict Sonarr's numbering while the matching AniDB episode is empty. */
   suspiciousLinks: { fileId: number; series: { id: number; title: string }; episode: string; name: string; linkedTo: number; expected: number }[];
   /** Files in a series folder Sonarr tracks nothing for: lost track (often a TVDB renumbering), never removable here. */
@@ -669,6 +673,10 @@ export type FileProblems = {
 export const getFileProblems = () => json<FileProblems>("/api/activity/files");
 export const removeExtraCopy = (fileId: number) =>
   postJson<{ ok: true; removed: string; torrent: boolean }>("/api/activity/files/remove-copy", { fileId });
+export const remapFiles = (moves: { path: string; toEpisodeId: number }[]) =>
+  postJson<{ ok: true; moved: number }>("/api/activity/files/remap", { moves });
+export const replaceWrongEpisode = (episodeId: number) =>
+  postJson<{ ok: true; blocklisted: boolean }>("/api/activity/files/replace-wrong", { episodeId });
 export const replaceEpisodes = (episodeIds: number[]) =>
   postJson<{ ok: true; searched: number }>("/api/activity/files/replace", { episodeIds });
 

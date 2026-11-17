@@ -57,7 +57,8 @@ export function episodes(seriesId) {
       // problems check uses them to find episodes nobody can follow.
       subtitles: item.episodeFile?.mediaInfo?.subtitles || "",
       audioLanguages: item.episodeFile?.mediaInfo?.audioLanguages || "",
-      sceneName: item.episodeFile?.sceneName || null
+      sceneName: item.episodeFile?.sceneName || null,
+      episodeFileId: item.episodeFileId || null
     }));
   });
 }
@@ -163,6 +164,46 @@ export async function queueForSeries(seriesId) {
       size: record.size ?? 0,
       status: record.status
     }));
+}
+
+// Re-maps files already in the library to other episodes of the same series (a TVDB renumbering).
+// Move mode: the file is renamed in place, never copied or deleted. Each item names one file and one
+// episode; nothing is scanned, so a folder can never be swept in by accident.
+export async function remapFiles(seriesId, items) {
+  const definitions = await api("/qualitydefinition");
+  const fallback = definitions.find(item => item.quality.name === "WEBDL-1080p")?.quality;
+  const files = [];
+  for (const item of items) {
+    const parsed = await api(`/parse?title=${encodeURIComponent(item.path.split("/").pop())}`).catch(() => null);
+    const quality = parsed?.parsedEpisodeInfo?.quality || { quality: fallback, revision: { version: 1, real: 0, isRepack: false } };
+    files.push({
+      path: item.path, seriesId: Number(seriesId), episodeIds: [Number(item.episodeId)], quality,
+      languages: parsed?.parsedEpisodeInfo?.languages?.length ? parsed.parsedEpisodeInfo.languages : [{ id: 1, name: "English" }],
+      indexerFlags: 0, releaseType: "singleEpisode"
+    });
+  }
+  const command = await api("/command", { method: "POST", body: JSON.stringify({ name: "ManualImport", importMode: "move", files }) });
+  for (let i = 0; i < 40; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    const state = await api(`/command/${command.id}`);
+    if (state.status === "completed" || state.status === "failed") break;
+  }
+  const fileIds = (await api(`/episode?seriesId=${Number(seriesId)}`)).map(item => item.episodeFileId).filter(Boolean);
+  await api("/command", { method: "POST", body: JSON.stringify({ name: "RenameFiles", seriesId: Number(seriesId), files: fileIds }) });
+  invalidate(`sonarr:episodes:${seriesId}`);
+  return { moved: files.length };
+}
+
+// Replaces a file that holds the wrong episode: the grab is blocklisted, the file goes to Sonarr's
+// recycle bin, and Sonarr searches for the episode again.
+export async function replaceWrongEpisode(seriesId, episodeId, episodeFileId, release) {
+  const history = await api(`/history/series?seriesId=${Number(seriesId)}&episodeId=${Number(episodeId)}`).catch(() => []);
+  const grab = (history || []).find(item => item.eventType === "grabbed" && item.sourceTitle === release);
+  if (grab) await api(`/history/failed/${grab.id}`, { method: "POST" }).catch(() => null);
+  if (episodeFileId) await api(`/episodefile/${Number(episodeFileId)}`, { method: "DELETE" });
+  await api("/command", { method: "POST", body: JSON.stringify({ name: "EpisodeSearch", episodeIds: [Number(episodeId)] }) });
+  invalidate(`sonarr:episodes:${seriesId}`);
+  return { blocklisted: Boolean(grab) };
 }
 
 // Every queue record as Sonarr has it, uncached, for the fake release guard.

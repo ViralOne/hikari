@@ -1,11 +1,11 @@
 import { createMemo, createSignal, For, Loading, Show } from "solid-js";
-import { getFileProblems, removeExtraCopy, replaceEpisodes, undoLink, type FileProblems } from "../api";
+import { getFileProblems, remapFiles, removeExtraCopy, replaceEpisodes, replaceWrongEpisode, undoLink, type FileProblems } from "../api";
 import { bytes } from "../format";
 
 // Second copies in series folders and files nobody can follow. Loaded on its own, after the rest of
 // the health report, because it reads every anime series' episode list from Sonarr.
 
-const EMPTY: FileProblems & { error?: string } = { extraCopies: [], suspiciousLinks: [], untracked: [], unwatchable: [], wanted: [] };
+const EMPTY: FileProblems & { error?: string } = { extraCopies: [], misplaced: [], wrongEpisode: [], suspiciousLinks: [], untracked: [], unwatchable: [], wanted: [] };
 
 export function FileProblemsBoxes(props: { token: number }) {
   const [tick, setTick] = createSignal(0);
@@ -52,7 +52,7 @@ export function FileProblemsBoxes(props: { token: number }) {
       <Show when={message()}>{m => <div class={`notice ${m().tone === "good" ? "info" : "bad"}`}>{m().text}</div>}</Show>
       <Show when={data().error}>{error => <div class="notice bad">Could not check the files: {error()}</div>}</Show>
 
-      <Show when={!data().error && data().extraCopies.length === 0 && data().suspiciousLinks.length === 0 && data().untracked.length === 0 && data().unwatchable.length === 0}>
+      <Show when={!data().error && data().extraCopies.length === 0 && data().misplaced.length === 0 && data().wrongEpisode.length === 0 && data().suspiciousLinks.length === 0 && data().untracked.length === 0 && data().unwatchable.length === 0}>
         <div class="dim" style={{ "font-size": "12px" }}>
           Files: every episode has one copy, with {data().wanted.join("/") || "wanted"} subtitles or audio.
         </div>
@@ -84,6 +84,76 @@ export function FileProblemsBoxes(props: { token: number }) {
                     <td class="num">
                       <button class="btn tiny" disabled={busy()} onClick={() => remove(copy)}>
                         Remove copy
+                      </button>
+                    </td>
+                  </tr>
+                )}
+              </For>
+            </tbody>
+          </table>
+        </div>
+      </Show>
+
+      <Show when={data().misplaced.length > 0}>
+        <div class="box">
+          <div class="box-head">
+            <span class="box-title">Episodes that moved · {data().misplaced.length}</span>
+            <button class="btn tiny primary" disabled={busy()} onClick={() => run(async () => {
+              const result = await remapFiles(data().misplaced.map(move => ({ path: move.path, toEpisodeId: move.toEpisodeId })));
+              return `Moved ${result.moved} file(s) to the episodes their titles name. Sonarr renamed them; Jellyfin is rescanning.`;
+            })}>
+              Apply all moves
+            </button>
+          </div>
+          <div class="dim" style={{ "font-size": "12px" }}>
+            TVDB renumbered these: each file's title names another, still empty episode of the same series. Applying re-maps and
+            renames them in Sonarr. Nothing is deleted.
+          </div>
+          <table class="table">
+            <tbody>
+              <For each={data().misplaced}>
+                {move => (
+                  <tr>
+                    <td class="fill">
+                      <div class="truncate">
+                        {move.series.title} · "{move.title}": {move.from ?? "not tracked"} → {move.to}
+                      </div>
+                      <div class="link-meta truncate" title={move.path}>{move.path.split("/").pop()}</div>
+                    </td>
+                  </tr>
+                )}
+              </For>
+            </tbody>
+          </table>
+        </div>
+      </Show>
+
+      <Show when={data().wrongEpisode.length > 0}>
+        <div class="box">
+          <div class="box-head">
+            <span class="box-title">Wrong episode imported · {data().wrongEpisode.length}</span>
+          </div>
+          <div class="dim" style={{ "font-size": "12px" }}>
+            The file's title matches no episode of the series, so it is something else under this episode's number, often a
+            spin-off or recap. Replace blocklists that release, moves the file to Sonarr's recycle bin and searches again.
+          </div>
+          <table class="table">
+            <tbody>
+              <For each={data().wrongEpisode}>
+                {item => (
+                  <tr>
+                    <td class="fill">
+                      <div class="truncate">
+                        {item.series.title} · {item.episode} should be "{item.sonarrTitle}", file is "{item.fileTitle}"
+                      </div>
+                      <div class="link-meta truncate" title={item.release}>{item.release}</div>
+                    </td>
+                    <td class="num">
+                      <button class="btn tiny" disabled={busy()} onClick={() => {
+                        if (!confirm(`Replace ${item.series.title} ${item.episode}?\n\nThe file "${item.fileTitle}" goes to Sonarr's recycle bin and the release is blocklisted.`)) return;
+                        run(async () => { await replaceWrongEpisode(item.episodeId); return `Replacing ${item.series.title} ${item.episode}; Sonarr is searching.`; });
+                      }}>
+                        Replace
                       </button>
                     </td>
                   </tr>
