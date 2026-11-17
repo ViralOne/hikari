@@ -164,6 +164,9 @@ number it had to guess.
 | Not managed by Sonarr | anime torrents Sonarr never grabbed | Import the folder in Sonarr or remove |
 | Folders Sonarr does not manage | folders under the anime root with no series | Import or delete |
 | **Extra copies** | a second file for an episode, in a series folder, that Sonarr does not track | **Remove copy** (file and torrent; never a file Sonarr tracks) |
+| **Episodes that moved** | TVDB renumbered a season: a file's title names another, empty episode of the same series | **Apply all moves**: Sonarr re-maps and renames them; nothing is deleted |
+| **Wrong episode imported** | the release names a different show (a spin-off under the main show's name) and a title no episode of the series has | **Replace**: blocklist, recycle bin, search again. The fake release guard also rejects these in the queue, before import |
+| **Links that look wrong** | a hand link contradicts Sonarr's number while the matching AniDB episode is empty | **Undo link**, then Link… suggests the matching number |
 | **No eng subtitles or audio** | Sonarr's media scan found no track you can follow | **Find better**: Sonarr searches and grabs a release that scores higher |
 
 The languages that count as watchable are set with `WATCH_LANGUAGES` (default `eng`; e.g. `eng,rum`).

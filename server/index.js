@@ -1562,6 +1562,40 @@ app.post("/api/activity/files/remove-copy", async c => {
   }
 });
 
+// Re-maps renumbered files to the episodes their titles name. Every move is re-checked against a fresh
+// scan, so only moves the panel is showing right now are made; files are renamed, never deleted.
+app.post("/api/activity/files/remap", async c => {
+  const body = await c.req.json().catch(() => ({}));
+  const wanted = Array.isArray(body.moves) ? body.moves : [];
+  const report = fileProblems.findFileProblems(await fileProblemInputs());
+  const valid = report.misplaced.filter(move => wanted.some(item => Number(item.toEpisodeId) === move.toEpisodeId && item.path === move.path));
+  if (valid.length === 0) return c.json({ error: "none of those moves are still pending" }, 409);
+  const bySeries = new Map();
+  for (const move of valid) bySeries.set(move.series.id, [...(bySeries.get(move.series.id) || []), { path: move.path, episodeId: move.toEpisodeId }]);
+  try {
+    for (const [seriesId, items] of bySeries) await sonarr.remapFiles(seriesId, items);
+    if (enabled.shoko) await shoko.runAction("import-new").catch(() => null);
+    if (enabled.jellyfin) await jellyfin.refreshLibrary().catch(() => null);
+    return c.json({ ok: true, moved: valid.length });
+  } catch (err) {
+    return c.json({ error: `Sonarr could not move the files (${err.message})` }, 502);
+  }
+});
+
+// Replaces a file that holds the wrong episode (re-checked first): blocklist, recycle bin, search.
+app.post("/api/activity/files/replace-wrong", async c => {
+  const body = await c.req.json().catch(() => ({}));
+  const report = fileProblems.findFileProblems(await fileProblemInputs());
+  const wrong = report.wrongEpisode.find(item => item.episodeId === Number(body.episodeId));
+  if (!wrong) return c.json({ error: "that episode no longer looks wrong, so it was left alone" }, 409);
+  try {
+    const result = await sonarr.replaceWrongEpisode(wrong.series.id, wrong.episodeId, wrong.episodeFileId, wrong.release);
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    return c.json({ error: `Sonarr could not replace it (${err.message})` }, 502);
+  }
+});
+
 // Asks Sonarr for a better release. Sonarr only grabs one that scores higher than the file it has,
 // so this depends on the release profile marking subtitle-less releases down (see docs/anime-sonarr.md).
 app.post("/api/activity/files/replace", async c => {

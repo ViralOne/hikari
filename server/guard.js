@@ -2,6 +2,7 @@ import { config, enabled } from "./config.js";
 import * as qbit from "./qbit.js";
 import * as radarr from "./radarr.js";
 import * as sonarr from "./sonarr.js";
+import { compareTitles, episodeByTitle, episodeTitleFrom, namesAnotherShow } from "./titles.js";
 
 // The fake release guard.
 //
@@ -54,6 +55,24 @@ async function sweepApp(app, records) {
     if (record.protocol !== "torrent" || !record.downloadId) continue;
     checked += 1;
     try {
+      // The wrong episode, caught before it is imported: the release names an episode title that is
+      // neither this episode's nor any other episode's of the series (a spin-off under the main show's
+      // number). One that names another episode of the series is left alone: that is a numbering
+      // problem, which the file problems panel re-maps after import.
+      if (app === "sonarr" && record.episode?.title) {
+        const title = episodeTitleFrom(record.title);
+        if (title && compareTitles(title, record.episode.title) === "mismatch" && namesAnotherShow(record.title, [record.series?.title, ...(record.series?.alternateTitles || []).map(alt => alt.title)].filter(Boolean))) {
+          const episodes = await sonarr.episodes(record.seriesId).catch(() => []);
+          if (episodes.length && !episodeByTitle(title, episodes)) {
+            await sonarr.rejectQueueItem(record.id);
+            const item = { app, title: record.title, reason: `release is episode "${title}", not "${record.episode.title}"`, at: new Date().toISOString() };
+            rejected.push(item);
+            history.push(item);
+            console.log(`[hikari] wrong episode removed (sonarr): ${record.title}: ${item.reason}`);
+            continue;
+          }
+        }
+      }
       const verdict = isFakeRelease(await qbit.files(record.downloadId.toLowerCase()));
       if (!verdict.fake) continue;
       await (app === "sonarr" ? sonarr : radarr).rejectQueueItem(record.id);

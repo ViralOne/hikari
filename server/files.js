@@ -1,3 +1,5 @@
+import { compareTitles, episodeByTitle, episodeTitleFrom, namesAnotherShow } from "./titles.js";
+
 // File problems: what is on disk in the anime library that should not be, or is there but cannot be
 // followed.
 //
@@ -120,6 +122,47 @@ export function findFileProblems({ series, episodesBySeries, shokoFiles, torrent
     }
   }
 
+  // Episode titles against the episode a file is attached to. A file whose title belongs to another,
+  // empty episode of the same series was renumbered (TVDB moved it): it is re-mapped, never deleted.
+  // A file whose title matches no episode of the series at all is the wrong content (a spin-off or
+  // recap grabbed under the main show's number): it is replaced. Files without a title in the name
+  // are never judged.
+  const misplaced = [];
+  const wrongEpisode = [];
+  const seriesById = new Map(series.map(item => [item.id, item]));
+  for (const item of series) {
+    const episodes = episodesBySeries.get(item.id) || [];
+    const claimed = new Set();
+    for (const episode of episodes) {
+      if (!episode.relativePath) continue;
+      const title = episodeTitleFrom(episode.sceneName) || episodeTitleFrom(episode.relativePath);
+      if (!title || compareTitles(title, episode.title) !== "mismatch") continue;
+      const target = episodeByTitle(title, episodes.filter(other => other.id !== episode.id));
+      const path = `${norm(item.path)}/${episode.relativePath}`;
+      if (target && !target.relativePath && !claimed.has(target.id)) {
+        claimed.add(target.id);
+        misplaced.push({ series: { id: item.id, title: item.title }, path, title, from: label(episode.seasonNumber, episode.episodeNumber),
+          to: label(target.seasonNumber, target.episodeNumber), toEpisodeId: target.id });
+      } else if (!target && namesAnotherShow(episode.sceneName, item.titles || [item.title])) {
+        // A different title alone is not enough: groups use alternate or segment titles. The release
+        // must also name a different show (a spin-off under the main show's name).
+        wrongEpisode.push({ series: { id: item.id, title: item.title }, episodeId: episode.id, episodeFileId: episode.episodeFileId ?? null,
+          episode: label(episode.seasonNumber, episode.episodeNumber), sonarrTitle: episode.title, fileTitle: title,
+          release: episode.sceneName || nameOf(episode.relativePath) });
+      }
+    }
+  }
+  // Files Sonarr lost track of whose title names an empty episode: the other half of a renumbering.
+  for (const file of untracked) {
+    const owner = seriesById.get(file.series.id);
+    const episodes = episodesBySeries.get(file.series.id) || [];
+    const target = episodeByTitle(episodeTitleFrom(file.name), episodes);
+    if (!owner || !target || target.relativePath || misplaced.some(move => move.toEpisodeId === target.id)) continue;
+    const inside = (shokoFiles.find(entry => entry.fileId === file.fileId)?.path || "").split("/").slice(1).join("/");
+    misplaced.push({ series: file.series, path: `${norm(owner.path)}/${inside}`, title: episodeTitleFrom(file.name), from: null,
+      to: label(target.seasonNumber, target.episodeNumber), toEpisodeId: target.id });
+  }
+
   const unwatchable = [];
   for (const item of series) {
     for (const episode of episodesBySeries.get(item.id) || []) {
@@ -139,6 +182,8 @@ export function findFileProblems({ series, episodesBySeries, shokoFiles, torrent
   return {
     extraCopies: extraCopies.sort((a, b) => b.size - a.size),
     suspiciousLinks,
+    misplaced,
+    wrongEpisode,
     untracked: untracked.sort((a, b) => a.series.title.localeCompare(b.series.title) || a.name.localeCompare(b.name)),
     unwatchable: unwatchable.sort((a, b) => a.series.title.localeCompare(b.series.title) || a.episode.localeCompare(b.episode)),
     wanted
