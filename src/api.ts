@@ -868,12 +868,20 @@ export function setSonarrSeriesType(seriesId: number, seriesType = "anime") {
   );
 }
 
-export type GroqModels = {
+export type AiProviderName = "groq" | "openrouter";
+
+export type AiProvider = {
+  provider: AiProviderName;
+  label: string;
   enabled: boolean;
+  /** Position in the order providers are asked, or -1 when the "Use" choice leaves it out. */
+  inOrder: number;
   preferred: string | null;
   refreshedAt: string | null;
   error: string | null;
-  lastUsed: { model: string; at: string } | null;
+  /** The whole provider is skipped until then, e.g. OpenRouter's daily free allowance is used up. */
+  resting: { reason: string; until: string } | null;
+  lastUsed: { provider: AiProviderName; model: string; at: string } | null;
   models: {
     id: string;
     owner: string | null;
@@ -885,11 +893,13 @@ export type GroqModels = {
   }[];
 };
 
-export const getGroqModels = () => json<GroqModels>("/api/settings/groq/models");
+export type AiOverview = { order: AiProviderName[]; setting: string; providers: AiProvider[] };
 
-/** Fetches the list again from Groq. `key` tries one typed into the form but not saved yet. */
-export const refreshGroqModels = (key?: string) =>
-  json<GroqModels>("/api/settings/groq/models/refresh", {
+export const getAiOverview = () => json<AiOverview>("/api/settings/ai");
+
+/** Fetches one provider's list again. `key` tries one typed into the form but not saved yet. */
+export const refreshAiModels = (provider: AiProviderName, key?: string) =>
+  json<AiOverview>(`/api/settings/ai/${provider}/refresh`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ key })

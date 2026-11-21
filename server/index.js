@@ -32,7 +32,7 @@ import { pageTorrents } from "./activity.js";
 import * as linker from "./linker.js";
 import * as fileProblems from "./files.js";
 import * as guard from "./guard.js";
-import * as groq from "./groq.js";
+import * as ai from "./ai.js";
 import * as settings from "./settings.js";
 import * as auth from "./auth.js";
 import { withinADay } from "./dates.js";
@@ -1113,18 +1113,24 @@ app.delete("/api/settings/token", c => {
   return c.json({ ok: true, ...result, ...settings.describe(), configured: settings.isConfigured() });
 });
 
-// The Groq models this key can use, in the order they are tried, and which are resting. Under
-// /api/settings, so the token and admin checks above cover both routes. A key in the body (one typed
-// but not saved yet) is only ever sent to Groq's own fixed address.
-app.get("/api/settings/groq/models", async c => {
-  const state = groq.describe();
-  return c.json(state.enabled && state.models.length === 0 && !state.refreshedAt ? await groq.refreshModels() : state);
+// The AI providers, their free models in the order they are tried, and which are resting. Under
+// /api/settings, so the token and admin checks above cover these routes. A key in the body (one typed
+// but not saved yet) is only ever sent to that provider's own fixed address.
+app.get("/api/settings/ai", async c => {
+  const overview = ai.overview();
+  for (const provider of overview.providers) {
+    if (provider.enabled && provider.models.length === 0 && !provider.refreshedAt) await ai.refreshModels(provider.provider);
+  }
+  return c.json(ai.overview());
 });
 
-app.post("/api/settings/groq/models/refresh", async c => {
+app.post("/api/settings/ai/:provider/refresh", async c => {
+  const name = c.req.param("provider");
+  if (!Object.hasOwn(ai.PROVIDERS, name)) return c.json({ error: "unknown provider" }, 404);
   const body = await c.req.json().catch(() => ({}));
   const apiKey = typeof body.key === "string" && body.key.trim() ? body.key.trim() : undefined;
-  return c.json(await groq.refreshModels({ apiKey }));
+  await ai.refreshModels(name, { apiKey });
+  return c.json(ai.overview());
 });
 
 // Probes a service with values that have not been saved yet, so the setup screen can tell you a

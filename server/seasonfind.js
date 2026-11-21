@@ -4,7 +4,7 @@
 
 import * as anilist from "./anilist.js";
 import * as shoko from "./shoko.js";
-import * as groq from "./groq.js";
+import * as ai from "./ai.js";
 import { cached } from "./cache.js";
 import { airTiming, decide, scoreCandidates, seasonFacts } from "./seasonmatch.js";
 
@@ -34,7 +34,7 @@ async function anilistTitles(series, seasonStart) {
 
 export function findSeasonSeries({ series, seasonNumber, episodes, focusNumbers = null }) {
   const facts = seasonFacts(series, seasonNumber, episodes, focusNumbers);
-  const key = `seasonfind:${series.id}:${seasonNumber}:${facts.seasonStart}:${facts.releases.length}:${groq.enabled()}`;
+  const key = `seasonfind:${series.id}:${seasonNumber}:${facts.seasonStart}:${facts.releases.length}:${ai.order().join("+")}`;
   return cached(key, 6 * 60 * 60 * 1000, async () => {
     facts.titles.push(...(await anilistTitles(series, facts.seasonStart)));
 
@@ -56,8 +56,8 @@ export function findSeasonSeries({ series, seasonNumber, episodes, focusNumbers 
     let via = pick ? "title" : null;
     let reason = pick ? pick.reasons.join(", ") : null;
 
-    if (!pick && top.length > 0 && groq.enabled()) {
-      const answer = await groq.chooseSeries(
+    if (!pick && top.length > 0 && ai.enabled()) {
+      const answer = await ai.chooseSeries(
         {
           sonarrTitles: series.titles || [series.title],
           seasonNumber,
@@ -73,7 +73,7 @@ export function findSeasonSeries({ series, seasonNumber, episodes, focusNumbers 
       if (answer) {
         pick = top.find(item => item.anidbId === answer.anidbId);
         via = "ai";
-        reason = `${answer.model}: ${answer.reason}`;
+        reason = `${answer.model} on ${ai.PROVIDERS[answer.provider].label}: ${answer.reason}`;
       }
     }
 

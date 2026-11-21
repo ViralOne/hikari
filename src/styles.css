@@ -2364,11 +2364,11 @@ select.field {
   gap: 10px;
 }
 
-.groq-picker .label-row {
+.ai-picker .label-row {
   flex-wrap: nowrap;
 }
 
-.groq-picker select.field {
+.ai-picker select.field {
   flex: 1;
   min-width: 0;
   height: 36px;

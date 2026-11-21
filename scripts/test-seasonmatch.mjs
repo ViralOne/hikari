@@ -2,7 +2,7 @@
 // from a library where the id bridges had nothing. Run: npm test
 process.env.GROQ_API_KEY = "test-key";
 const { airTiming, airingRun, decide, releaseShowNames, scoreCandidates, titleOrdinal, titleYear } = await import("../server/seasonmatch.js");
-const groq = await import("../server/groq.js");
+const ai = await import("../server/ai.js");
 
 let failures = 0;
 const check = (name, pass, detail) => {
@@ -67,7 +67,7 @@ console.log("the AI second opinion");
 const { config } = await import("../server/config.js");
 const facts = { seasonNumber: 4 };
 const candidates = [{ anidbId: 19882, title: "Shiguang Dailiren III" }, { anidbId: 19078, title: "Link Click - Bridon Arc" }];
-const MODELS = [
+const GROQ_MODELS = [
   { id: "whisper-large-v3", active: true, context_window: 448 },
   { id: "llama-3.1-8b-instant", active: true, context_window: 131072 },
   { id: "llama-3.3-70b-versatile", active: true, context_window: 131072 },
@@ -75,68 +75,108 @@ const MODELS = [
   { id: "meta-llama/llama-guard-4-12b", active: true, context_window: 131072 },
   { id: "old-model", active: false, context_window: 8192 }
 ];
+const free = { prompt: "0", completion: "0" };
+const OPENROUTER_MODELS = [
+  { id: "deepseek/deepseek-chat-v3:free", pricing: free, context_length: 163840, supported_parameters: ["response_format", "structured_outputs"] },
+  { id: "meta-llama/llama-3.3-70b-instruct:free", pricing: free, context_length: 131072, supported_parameters: ["response_format"] },
+  { id: "openai/gpt-4o", pricing: { prompt: "0.0000025", completion: "0.00001" }, context_length: 128000, supported_parameters: ["response_format", "structured_outputs"] },
+  { id: "openrouter/free", pricing: free, context_length: 0, supported_parameters: [] }
+];
 const reply = (status, body, extra = {}) => ({
   ok: status < 300, status,
   headers: { get: name => extra[name.toLowerCase()] ?? null },
   json: async () => body, text: async () => JSON.stringify(body)
 });
 const pick = content => reply(200, { choices: [{ message: { content: JSON.stringify(content) } }] });
-// Answers per model, in call order; `calls` records which model each chat request went to.
-const stack = (perModel) => {
+// Answers per model; `calls` records where each chat request went.
+const stack = perModel => {
   const calls = [];
   globalThis.fetch = async (url, options = {}) => {
-    if (url.endsWith("/models")) return reply(200, { data: MODELS });
+    const provider = url.includes("openrouter.ai") ? "openrouter" : "groq";
+    if (url.includes("/models")) return reply(200, { data: provider === "groq" ? GROQ_MODELS : OPENROUTER_MODELS });
     const body = JSON.parse(options.body);
-    calls.push({ model: body.model, format: body.response_format.type });
+    calls.push({ provider, model: body.model, format: body.response_format.type });
     const next = perModel[body.model];
     return typeof next === "function" ? next(body) : next ?? reply(500, {});
   };
   return calls;
 };
 const good = pick({ anidbId: 19882, confidence: "high", reason: "third Chinese season aired that week" });
+const setup = ({ groq = "g-key", openrouter = "", providers = "auto" } = {}) => {
+  ai._reset();
+  config.groq.apiKey = groq; config.groq.model = "";
+  config.openrouter.apiKey = openrouter; config.openrouter.model = "";
+  config.ai.providers = providers;
+};
 
-groq._reset();
+setup({ openrouter: "o-key" });
 stack({});
-await groq.refreshModels();
-const ranked = groq.describe().models.map(model => model.id);
-check("only chat models, strongest and strict-capable first", ranked.join() === "openai/gpt-oss-120b,llama-3.3-70b-versatile,llama-3.1-8b-instant", ranked.join());
+await ai.refreshModels("groq");
+await ai.refreshModels("openrouter");
+check("Groq: only chat models, strongest and strict-capable first",
+  ai.describe("groq").models.map(m => m.id).join() === "openai/gpt-oss-120b,llama-3.3-70b-versatile,llama-3.1-8b-instant");
+check("OpenRouter: only free models, never the paid ones or the router",
+  ai.describe("openrouter").models.map(m => m.id).join() === "deepseek/deepseek-chat-v3:free,meta-llama/llama-3.3-70b-instruct:free");
+check("automatic asks Groq first, then OpenRouter", ai.order().join() === "groq,openrouter");
+setup({ groq: "", openrouter: "o-key" });
+check("a provider without a key is never asked", ai.order().join() === "openrouter");
+setup({ openrouter: "o-key", providers: "openrouter" });
+check("the choice can leave one out", ai.order().join() === "openrouter");
+setup({ openrouter: "o-key", providers: "openrouter,groq" });
+check("or reverse the order", ai.order().join() === "openrouter,groq");
+setup({ groq: "", openrouter: "" });
+check("no keys, no AI", !ai.enabled());
 
-groq._reset();
+setup();
 let calls = stack({ "openai/gpt-oss-120b": good });
-check("a confident pick among the candidates is taken", (await groq.chooseSeries(facts, candidates))?.anidbId === 19882);
+check("a confident pick among the candidates is taken", (await ai.chooseSeries(facts, candidates))?.anidbId === 19882);
 check("no model is hardcoded: the first from the list answers", calls[0]?.model === "openai/gpt-oss-120b" && calls[0]?.format === "json_schema");
 
-groq._reset();
-calls = stack({ "openai/gpt-oss-120b": reply(429, {}, { "retry-after": "30" }), "llama-3.3-70b-versatile": good });
-check("a rate-limited model hands over to the next", (await groq.chooseSeries(facts, candidates))?.model === "llama-3.3-70b-versatile");
-check("and rests for as long as Groq asked", groq.describe().models.find(m => m.id === "openai/gpt-oss-120b")?.state === "rate limited");
+setup();
+stack({ "openai/gpt-oss-120b": reply(429, {}, { "retry-after": "30" }), "llama-3.3-70b-versatile": good });
+check("a rate-limited model hands over to the next", (await ai.chooseSeries(facts, candidates))?.model === "llama-3.3-70b-versatile");
+check("and rests for as long as it was asked", ai.describe("groq").models.find(m => m.id === "openai/gpt-oss-120b")?.state === "rate limited");
 calls = stack({ "openai/gpt-oss-120b": good, "llama-3.3-70b-versatile": good });
-await groq.chooseSeries(facts, candidates);
+await ai.chooseSeries(facts, candidates);
 check("so the next question skips it", calls[0]?.model === "llama-3.3-70b-versatile");
 
-groq._reset();
+setup();
 stack({ "openai/gpt-oss-120b": reply(400, { error: { message: "The model `openai/gpt-oss-120b` has been decommissioned", code: "model_decommissioned" } }), "llama-3.3-70b-versatile": good });
-await groq.chooseSeries(facts, candidates);
-check("a retired model is dropped until the list is refreshed", groq.describe().models.find(m => m.id === "openai/gpt-oss-120b")?.state === "gone");
+await ai.chooseSeries(facts, candidates);
+check("a retired model is dropped until the list is refreshed", ai.describe("groq").models.find(m => m.id === "openai/gpt-oss-120b")?.state === "gone");
 
-groq._reset();
+setup({ openrouter: "o-key" });
+calls = stack({ "deepseek/deepseek-chat-v3:free": good });
+const fallback = await ai.chooseSeries(facts, candidates);
+check("when Groq cannot answer at all, OpenRouter does", fallback?.provider === "openrouter" && fallback?.model === "deepseek/deepseek-chat-v3:free",
+  calls.map(c => `${c.provider}:${c.model}`).join(" "));
+check("after at most three Groq models", calls.filter(c => c.provider === "groq").length === 3);
+
+setup({ groq: "", openrouter: "o-key" });
+const reset = Date.now() + 3 * 60 * 60 * 1000;
+calls = stack({ "deepseek/deepseek-chat-v3:free": reply(429, { error: { message: "Rate limit exceeded: free-models-per-day" } }, { "x-ratelimit-reset": String(reset) }) });
+await ai.chooseSeries(facts, candidates);
+check("OpenRouter's daily free allowance rests the whole provider until it resets",
+  calls.length === 1 && ai.describe("openrouter").resting?.reason === "daily free allowance used" && Date.parse(ai.describe("openrouter").resting.until) === reset);
+calls = stack({});
+await ai.chooseSeries(facts, candidates);
+check("and nothing more is sent to it meanwhile", calls.length === 0);
+
+setup();
 calls = stack({ "llama-3.3-70b-versatile": body => body.response_format.type === "json_schema"
   ? reply(400, { error: { message: "response_format json_schema is not supported with this model" } })
   : good });
 config.groq.model = "llama-3.3-70b-versatile";
 check("a chosen model goes first, and without strict schemas it is asked for plain JSON",
-  (await groq.chooseSeries(facts, candidates))?.model === "llama-3.3-70b-versatile" && calls.map(c => c.format).join() === "json_schema,json_object");
-config.groq.model = "";
+  (await ai.chooseSeries(facts, candidates))?.model === "llama-3.3-70b-versatile" && calls.map(c => c.format).join() === "json_schema,json_object");
 
-groq._reset();
-stack({ "openai/gpt-oss-120b": pick({ anidbId: 19882, confidence: "medium", reason: "" }) });
-check("anything less than high is no", (await groq.chooseSeries(facts, candidates)) === null);
-groq._reset();
+setup({ openrouter: "o-key" });
+calls = stack({ "openai/gpt-oss-120b": pick({ anidbId: 19882, confidence: "medium", reason: "" }), "deepseek/deepseek-chat-v3:free": good });
+check("anything less than high is no, and another model is not asked until one says yes",
+  (await ai.chooseSeries(facts, candidates)) === null && calls.length === 1);
+setup();
 stack({ "openai/gpt-oss-120b": pick({ anidbId: 5, confidence: "high", reason: "" }) });
-check("an id that was not offered is no", (await groq.chooseSeries(facts, candidates)) === null);
-groq._reset();
-calls = stack({});
-check("when every model fails it is no, after a few tries", (await groq.chooseSeries(facts, candidates)) === null && calls.length === 3);
+check("an id that was not offered is no", (await ai.chooseSeries(facts, candidates)) === null);
 
 if (failures) {
   console.log(`\n${failures} check(s) failed`);

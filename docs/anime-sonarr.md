@@ -145,7 +145,7 @@ episode is never fetched.
     anime was airing when the season did), else a title match: Sonarr's names, the release names, and
     AniList's entry that aired that week, against AniDB's titles, years ("… (2026)" is the new season)
     and air dates. A clear winner gets its Shoko series created and linked; a tie is left for you, or for
-    an AI if `GROQ_API_KEY` is set. The dialog says which of these chose the series.
+    a free AI (Groq and/or OpenRouter, Settings → AI assistant) if a key is set. The dialog says which of these chose the series.
   - **Anime health → Not in Jellyfin → Link…** shows everything else with a guess filled in and the reason
     for it. You confirm; it links and rescans Jellyfin. Hand links can be undone there.
 

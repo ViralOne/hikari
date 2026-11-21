@@ -52,8 +52,16 @@ export const config = {
     url: trim(process.env.SHOKO_URL),
     key: (process.env.SHOKO_API_KEY || "").trim()
   },
-  // Optional. A free key from console.groq.com lets an LLM settle the AniDB matches the rules
-  // find too close to call. Nothing is sent to Groq without it.
+  // Optional free LLMs that settle the AniDB matches the rules find too close to call (see ai.js).
+  // Nothing is sent anywhere without a key. AI_PROVIDERS: auto, groq, openrouter, groq,openrouter
+  // or openrouter,groq.
+  ai: {
+    providers: (process.env.AI_PROVIDERS || "auto").trim()
+  },
+  openrouter: {
+    apiKey: (process.env.OPENROUTER_API_KEY || "").trim(),
+    model: (process.env.OPENROUTER_MODEL || "").trim()
+  },
   groq: {
     apiKey: (process.env.GROQ_API_KEY || "").trim(),
     // Empty or "auto": the strongest model your key can use that is answering. A model id puts that

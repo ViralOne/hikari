@@ -6,7 +6,7 @@
 // AniDB puts on same-named sequels ("Kikansha no Mahou wa Tokubetsu Desu" is 2025, "... (2026)" the
 // second season), an ordinal in the title, and the air date once Shoko has the anime. The scoring
 // below is the same for every show. When two candidates are still too close to call, an LLM may be
-// asked (see groq.js), but it can only choose among the candidates this file kept.
+// asked (see ai.js), but it can only choose among the candidates this file kept.
 
 import { normalize, similarity } from "./match.js";
 import { titleKey } from "./titles.js";

@@ -7,7 +7,7 @@ import {
   testService,
   type SettingField
 } from "../api";
-import { GroqModelPicker } from "../components/GroqModels";
+import { AiModelPicker, AiProviderChoice } from "../components/AiModels";
 import { Icon } from "../components/Icon";
 
 // Groups in the order a first run wants them: the one required service, then the ones that add
@@ -70,6 +70,12 @@ const GROUPS: Array<{
       "One secret for the callers that cannot hold a session cookie: the Homepage widget, the Sonarr webhook, and your own scripts."
   },
   { id: "autolink", title: "Automatic linking", blurb: "Keeps Shoko's episode links in step with Sonarr." },
+  {
+    id: "ai",
+    title: "AI assistant",
+    blurb:
+      "Optional, free. When titles and dates score two AniDB series the same for a new season, a free model picks one or none. Only titles, dates and episode counts are sent, and only then."
+  },
   { id: "general", title: "General", blurb: "" }
 ];
 
@@ -433,15 +439,24 @@ export function Settings(props: { welcome: boolean; token: number; onSaved: () =
                       </label>
 
                       <Show
-                        when={field().key !== "groq.model"}
+                        when={field().key !== "groq.model" && field().key !== "openrouter.model" && field().key !== "ai.providers"}
                         fallback={
-                          <GroqModelPicker
-                            id={`set-${field().key}`}
-                            value={String(current(field()))}
-                            draftKey={String(draft()["groq.apiKey"] ?? "")}
-                            keySaved={Boolean(data().fields.find(item => item.key === "groq.apiKey")?.set)}
-                            onChange={value => edit(field().key, value)}
-                          />
+                          field().key === "ai.providers" ? (
+                            <AiProviderChoice
+                              id={`set-${field().key}`}
+                              value={String(current(field()))}
+                              onChange={value => edit(field().key, value)}
+                            />
+                          ) : (
+                            <AiModelPicker
+                              id={`set-${field().key}`}
+                              provider={field().key === "groq.model" ? "groq" : "openrouter"}
+                              value={String(current(field()))}
+                              draftKey={String(draft()[field().key.replace(".model", ".apiKey")] ?? "")}
+                              keySaved={Boolean(data().fields.find(item => item.key === field().key.replace(".model", ".apiKey"))?.set)}
+                              onChange={value => edit(field().key, value)}
+                            />
+                          )
                         }
                       >
                       <Show
