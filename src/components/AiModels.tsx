@@ -5,7 +5,7 @@ const EMPTY: AiOverview = { order: [], setting: "auto", providers: [] };
 const when = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "short", timeStyle: "short" });
 
 export const PROVIDER_CHOICES: { value: string; label: string }[] = [
-  { value: "auto", label: "Automatic: Groq first, OpenRouter if Groq can't answer" },
+  { value: "auto", label: "Automatic (Groq, then OpenRouter)" },
   { value: "groq", label: "Groq only" },
   { value: "openrouter", label: "OpenRouter only" },
   { value: "openrouter,groq", label: "OpenRouter first, then Groq" }
