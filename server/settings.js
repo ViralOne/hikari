@@ -125,7 +125,15 @@ export const FIELDS = [
     label: "Groq API key",
     hint: "Optional, free at console.groq.com. An AI settles the AniDB series a new season belongs to when titles and dates score two the same. It only sees titles and dates"
   },
-  { key: "groq.model", env: "GROQ_MODEL", type: "text", group: "autolink", label: "Groq model", placeholder: "openai/gpt-oss-120b" },
+  {
+    key: "groq.model",
+    env: "GROQ_MODEL",
+    type: "text",
+    group: "autolink",
+    label: "Groq model",
+    placeholder: "Automatic",
+    hint: "Automatic uses the strongest free model that is answering. Whichever you pick, the others stand in when it is rate limited or retired"
+  },
   { key: "autoLink.maxPerRun", env: "AUTO_LINK_MAX_PER_RUN", type: "number", min: 1, max: 200, group: "autolink", label: "Maximum links per run" }
 ];
 

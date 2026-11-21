@@ -64,19 +64,79 @@ check("too close to call is left alone", decide(linkClick) === null, linkClick.m
 check("movies are never candidates", scoreCandidates({ seasonNumber: 1, seasonStart: null, episodeCount: 12, titles: sonarr(["Bleach"]) }, [{ anidbId: 1, title: "Bleach", type: "Movie" }]).length === 0);
 
 console.log("the AI second opinion");
+const { config } = await import("../server/config.js");
 const facts = { seasonNumber: 4 };
 const candidates = [{ anidbId: 19882, title: "Shiguang Dailiren III" }, { anidbId: 19078, title: "Link Click - Bridon Arc" }];
-const answer = content => async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(content) } }] }) });
-let sent = null;
-globalThis.fetch = async (url, options) => { sent = JSON.parse(options.body); return answer({ anidbId: 19882, confidence: "high", reason: "third Chinese season aired that week" })(); };
+const MODELS = [
+  { id: "whisper-large-v3", active: true, context_window: 448 },
+  { id: "llama-3.1-8b-instant", active: true, context_window: 131072 },
+  { id: "llama-3.3-70b-versatile", active: true, context_window: 131072 },
+  { id: "openai/gpt-oss-120b", active: true, context_window: 131072 },
+  { id: "meta-llama/llama-guard-4-12b", active: true, context_window: 131072 },
+  { id: "old-model", active: false, context_window: 8192 }
+];
+const reply = (status, body, extra = {}) => ({
+  ok: status < 300, status,
+  headers: { get: name => extra[name.toLowerCase()] ?? null },
+  json: async () => body, text: async () => JSON.stringify(body)
+});
+const pick = content => reply(200, { choices: [{ message: { content: JSON.stringify(content) } }] });
+// Answers per model, in call order; `calls` records which model each chat request went to.
+const stack = (perModel) => {
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    if (url.endsWith("/models")) return reply(200, { data: MODELS });
+    const body = JSON.parse(options.body);
+    calls.push({ model: body.model, format: body.response_format.type });
+    const next = perModel[body.model];
+    return typeof next === "function" ? next(body) : next ?? reply(500, {});
+  };
+  return calls;
+};
+const good = pick({ anidbId: 19882, confidence: "high", reason: "third Chinese season aired that week" });
+
+groq._reset();
+stack({});
+await groq.refreshModels();
+const ranked = groq.describe().models.map(model => model.id);
+check("only chat models, strongest and strict-capable first", ranked.join() === "openai/gpt-oss-120b,llama-3.3-70b-versatile,llama-3.1-8b-instant", ranked.join());
+
+groq._reset();
+let calls = stack({ "openai/gpt-oss-120b": good });
 check("a confident pick among the candidates is taken", (await groq.chooseSeries(facts, candidates))?.anidbId === 19882);
-check("its answer is held to a strict schema", sent?.response_format?.json_schema?.strict === true);
-globalThis.fetch = answer({ anidbId: 19882, confidence: "medium", reason: "" });
+check("no model is hardcoded: the first from the list answers", calls[0]?.model === "openai/gpt-oss-120b" && calls[0]?.format === "json_schema");
+
+groq._reset();
+calls = stack({ "openai/gpt-oss-120b": reply(429, {}, { "retry-after": "30" }), "llama-3.3-70b-versatile": good });
+check("a rate-limited model hands over to the next", (await groq.chooseSeries(facts, candidates))?.model === "llama-3.3-70b-versatile");
+check("and rests for as long as Groq asked", groq.describe().models.find(m => m.id === "openai/gpt-oss-120b")?.state === "rate limited");
+calls = stack({ "openai/gpt-oss-120b": good, "llama-3.3-70b-versatile": good });
+await groq.chooseSeries(facts, candidates);
+check("so the next question skips it", calls[0]?.model === "llama-3.3-70b-versatile");
+
+groq._reset();
+stack({ "openai/gpt-oss-120b": reply(400, { error: { message: "The model `openai/gpt-oss-120b` has been decommissioned", code: "model_decommissioned" } }), "llama-3.3-70b-versatile": good });
+await groq.chooseSeries(facts, candidates);
+check("a retired model is dropped until the list is refreshed", groq.describe().models.find(m => m.id === "openai/gpt-oss-120b")?.state === "gone");
+
+groq._reset();
+calls = stack({ "llama-3.3-70b-versatile": body => body.response_format.type === "json_schema"
+  ? reply(400, { error: { message: "response_format json_schema is not supported with this model" } })
+  : good });
+config.groq.model = "llama-3.3-70b-versatile";
+check("a chosen model goes first, and without strict schemas it is asked for plain JSON",
+  (await groq.chooseSeries(facts, candidates))?.model === "llama-3.3-70b-versatile" && calls.map(c => c.format).join() === "json_schema,json_object");
+config.groq.model = "";
+
+groq._reset();
+stack({ "openai/gpt-oss-120b": pick({ anidbId: 19882, confidence: "medium", reason: "" }) });
 check("anything less than high is no", (await groq.chooseSeries(facts, candidates)) === null);
-globalThis.fetch = answer({ anidbId: 5, confidence: "high", reason: "" });
+groq._reset();
+stack({ "openai/gpt-oss-120b": pick({ anidbId: 5, confidence: "high", reason: "" }) });
 check("an id that was not offered is no", (await groq.chooseSeries(facts, candidates)) === null);
-globalThis.fetch = async () => ({ ok: false, status: 429, json: async () => ({}) });
-check("a rate limit is no", (await groq.chooseSeries(facts, candidates)) === null);
+groq._reset();
+calls = stack({});
+check("when every model fails it is no, after a few tries", (await groq.chooseSeries(facts, candidates)) === null && calls.length === 3);
 
 if (failures) {
   console.log(`\n${failures} check(s) failed`);

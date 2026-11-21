@@ -73,7 +73,7 @@ export function findSeasonSeries({ series, seasonNumber, episodes, focusNumbers 
       if (answer) {
         pick = top.find(item => item.anidbId === answer.anidbId);
         via = "ai";
-        reason = answer.reason;
+        reason = `${answer.model}: ${answer.reason}`;
       }
     }
 

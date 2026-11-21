@@ -867,3 +867,30 @@ export function setSonarrSeriesType(seriesId: number, seriesType = "anime") {
     }
   );
 }
+
+export type GroqModels = {
+  enabled: boolean;
+  preferred: string | null;
+  refreshedAt: string | null;
+  error: string | null;
+  lastUsed: { model: string; at: string } | null;
+  models: {
+    id: string;
+    owner: string | null;
+    contextWindow: number | null;
+    strict: boolean;
+    /** "ok", or why it is being skipped for now: "rate limited", "gone", "unavailable", "error 4xx". */
+    state: string;
+    until: string | null;
+  }[];
+};
+
+export const getGroqModels = () => json<GroqModels>("/api/settings/groq/models");
+
+/** Fetches the list again from Groq. `key` tries one typed into the form but not saved yet. */
+export const refreshGroqModels = (key?: string) =>
+  json<GroqModels>("/api/settings/groq/models/refresh", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key })
+  });

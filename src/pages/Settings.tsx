@@ -7,6 +7,7 @@ import {
   testService,
   type SettingField
 } from "../api";
+import { GroqModelPicker } from "../components/GroqModels";
 import { Icon } from "../components/Icon";
 
 // Groups in the order a first run wants them: the one required service, then the ones that add
@@ -432,6 +433,18 @@ export function Settings(props: { welcome: boolean; token: number; onSaved: () =
                       </label>
 
                       <Show
+                        when={field().key !== "groq.model"}
+                        fallback={
+                          <GroqModelPicker
+                            id={`set-${field().key}`}
+                            value={String(current(field()))}
+                            draftKey={String(draft()["groq.apiKey"] ?? "")}
+                            keySaved={Boolean(data().fields.find(item => item.key === "groq.apiKey")?.set)}
+                            onChange={value => edit(field().key, value)}
+                          />
+                        }
+                      >
+                      <Show
                         when={field().type !== "boolean"}
                         fallback={
                           <input
@@ -460,6 +473,7 @@ export function Settings(props: { welcome: boolean; token: number; onSaved: () =
                           value={String(current(field()))}
                           onInput={event => edit(field().key, event.currentTarget.value)}
                         />
+                      </Show>
                       </Show>
                     </div>
                   )}

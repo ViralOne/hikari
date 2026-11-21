@@ -32,6 +32,7 @@ import { pageTorrents } from "./activity.js";
 import * as linker from "./linker.js";
 import * as fileProblems from "./files.js";
 import * as guard from "./guard.js";
+import * as groq from "./groq.js";
 import * as settings from "./settings.js";
 import * as auth from "./auth.js";
 import { withinADay } from "./dates.js";
@@ -1110,6 +1111,20 @@ app.delete("/api/settings/token", c => {
   const result = settings.clearToken();
   console.log(`[hikari] API token removed by ${sessionFor(c)?.name ?? "a token holder"} from ${clientAddress(c)}`);
   return c.json({ ok: true, ...result, ...settings.describe(), configured: settings.isConfigured() });
+});
+
+// The Groq models this key can use, in the order they are tried, and which are resting. Under
+// /api/settings, so the token and admin checks above cover both routes. A key in the body (one typed
+// but not saved yet) is only ever sent to Groq's own fixed address.
+app.get("/api/settings/groq/models", async c => {
+  const state = groq.describe();
+  return c.json(state.enabled && state.models.length === 0 && !state.refreshedAt ? await groq.refreshModels() : state);
+});
+
+app.post("/api/settings/groq/models/refresh", async c => {
+  const body = await c.req.json().catch(() => ({}));
+  const apiKey = typeof body.key === "string" && body.key.trim() ? body.key.trim() : undefined;
+  return c.json(await groq.refreshModels({ apiKey }));
 });
 
 // Probes a service with values that have not been saved yet, so the setup screen can tell you a

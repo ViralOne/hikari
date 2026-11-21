@@ -56,7 +56,9 @@ export const config = {
   // find too close to call. Nothing is sent to Groq without it.
   groq: {
     apiKey: (process.env.GROQ_API_KEY || "").trim(),
-    model: (process.env.GROQ_MODEL || "openai/gpt-oss-120b").trim()
+    // Empty or "auto": the strongest model your key can use that is answering. A model id puts that
+    // one first; the others still stand in when it is rate limited or gone.
+    model: (process.env.GROQ_MODEL || "").trim()
   },
   anilist: {
     token: (process.env.ANILIST_TOKEN || "").trim(),
