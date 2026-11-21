@@ -52,6 +52,12 @@ export const config = {
     url: trim(process.env.SHOKO_URL),
     key: (process.env.SHOKO_API_KEY || "").trim()
   },
+  // Optional. A free key from console.groq.com lets an LLM settle the AniDB matches the rules
+  // find too close to call. Nothing is sent to Groq without it.
+  groq: {
+    apiKey: (process.env.GROQ_API_KEY || "").trim(),
+    model: (process.env.GROQ_MODEL || "openai/gpt-oss-120b").trim()
+  },
   anilist: {
     token: (process.env.ANILIST_TOKEN || "").trim(),
     // Writing to your AniList list stays off unless you ask for it.

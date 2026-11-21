@@ -23,6 +23,8 @@ Every variable goes in `.env`. Anything left blank disables its feature rather t
 | `FAKE_GUARD_INTERVAL_MINUTES` | no | How often the guard checks the queues. Default `10` |
 | `WATCH_LANGUAGES` | no | Subtitle or audio languages that make a file watchable, as ISO 639-2 codes Sonarr reports (`eng`, `rum`, `jpn`). Files with none of them are listed in Anime health. Default `eng` |
 | `ANILIST_TOKEN` | no | AniList token. Discovery works without one; this adds your list status and progress, and the **Continue the story** and **Ready to start** rows |
+| `GROQ_API_KEY` | no | Free key from console.groq.com. When the title rules score two AniDB series the same for a new season, an AI picks one of them, or none. Only titles, dates and episode counts are sent |
+| `GROQ_MODEL` | no | Groq model for that. Default `openai/gpt-oss-120b` |
 | `ANILIST_ALLOW_WRITES` | no | Default `false`. Set `true` to let Hikari change your AniList status and progress |
 | `ANILIST_SCROBBLE` | no | Default `false`. With writes allowed, moves your list forward as Jellyfin finishes episodes. Needs the webhook below |
 | `AUTO_LINK` | no | Default `false`. Links files Shoko hashed but AniDB never matched, on a timer |

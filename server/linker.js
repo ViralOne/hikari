@@ -106,7 +106,11 @@ export async function buildPlan(folder, overrides = {}) {
   const result = [];
   for (const [seasonNumber, items] of [...seasons].sort((a, b) => (a[0] ?? 999) - (b[0] ?? 999))) {
     const override = Number(overrides[seasonNumber]) || null;
-    const context = await seasonContext({ series, seasonNumber, episodes, index, shokoIndex, shokoId: override });
+    const found = await seasonContext({
+      series, seasonNumber, episodes, index, shokoIndex, shokoId: override,
+      focusNumbers: items.map(({ episode }) => episode?.episodeNumber).filter(Number.isInteger)
+    });
+    const context = found?.shokoId ? found : null;
     const entry = context ? shokoIndex.byShoko.get(context.shokoId) : null;
     // Same as auto-link: a file past the end of the episode list means Shoko's copy is stale.
     let refreshing = false;
@@ -125,7 +129,8 @@ export async function buildPlan(folder, overrides = {}) {
       shoko: context
         ? { id: context.shokoId, name: entry?.name ?? `Shoko series ${context.shokoId}`, anidbId: entry?.anidbId ?? null }
         : null,
-      chosenBy: override ? "you" : context ? "automatic" : null,
+      chosenBy: context?.chosenBy ?? null,
+      matchReason: context?.reason ?? found?.pending ?? null,
       offset: context?.offset ?? null,
       episodes: (context?.detail.episodes ?? []).map(item => ({
         shokoEpisodeId: item.shokoEpisodeId,
@@ -141,7 +146,7 @@ export async function buildPlan(folder, overrides = {}) {
         sonarr: sonarrRef(row.episode),
         guess: row.guess,
         reason: !context
-          ? "pick the AniDB series for this season first"
+          ? found?.pending ?? "pick the AniDB series for this season first"
           : /^AniDB has no episode/.test(row.reason || "")
             ? `${row.reason}: a new episode Shoko has not heard of yet.${refreshing ? " Shoko is asking AniDB now; reopen this in a minute." : " Shoko asked AniDB recently; try again later."}`
             : row.reason

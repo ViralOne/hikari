@@ -117,6 +117,15 @@ export const FIELDS = [
   { key: "autoLink.enabled", env: "AUTO_LINK", type: "boolean", group: "autolink", label: "Link unmatched files automatically" },
   { key: "autoLink.intervalMinutes", env: "AUTO_LINK_INTERVAL_MINUTES", type: "number", min: 5, max: 1440, group: "autolink", label: "Every (minutes)" },
   { key: "autoLink.graceHours", env: "AUTO_LINK_GRACE_HOURS", type: "number", min: 0, max: 168, group: "autolink", label: "Leave new files to AniDB for (hours)" },
+  {
+    key: "groq.apiKey",
+    env: "GROQ_API_KEY",
+    type: "secret",
+    group: "autolink",
+    label: "Groq API key",
+    hint: "Optional, free at console.groq.com. An AI settles the AniDB series a new season belongs to when titles and dates score two the same. It only sees titles and dates"
+  },
+  { key: "groq.model", env: "GROQ_MODEL", type: "text", group: "autolink", label: "Groq model", placeholder: "openai/gpt-oss-120b" },
   { key: "autoLink.maxPerRun", env: "AUTO_LINK_MAX_PER_RUN", type: "number", min: 1, max: 200, group: "autolink", label: "Maximum links per run" }
 ];
 

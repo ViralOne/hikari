@@ -212,12 +212,25 @@ export function LinkDialog(props: { folder: string; title: string; onClose: () =
                       <div class="label-row">
                         <Show
                           when={season.shoko}
-                          fallback={<span class="badge pending">no Shoko series yet</span>}
+                          fallback={
+                            <span class="badge pending" title={season.matchReason ?? undefined}>
+                              {season.matchReason ? "fetching from AniDB" : "no Shoko series yet"}
+                            </span>
+                          }
                         >
                           {shoko => (
-                            <span class="dim" title={shoko().anidbId ? `AniDB ${shoko().anidbId}` : undefined}>
+                            <span
+                              class="dim"
+                              title={[shoko().anidbId ? `AniDB ${shoko().anidbId}` : "", season.matchReason ?? ""].filter(Boolean).join("\n") || undefined}
+                            >
                               {shoko().name}
-                              {season.chosenBy === "you" ? " · picked by you" : ""}
+                              {season.chosenBy === "you"
+                                ? " · picked by you"
+                                : season.chosenBy === "title"
+                                  ? " · matched by title"
+                                  : season.chosenBy === "ai"
+                                    ? " · picked by AI, check it"
+                                    : ""}
                             </span>
                           )}
                         </Show>

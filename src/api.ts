@@ -588,8 +588,10 @@ export type LinkVia = "numbering" | "air date" | "title" | "episode number";
 export type LinkPlanSeason = {
   seasonNumber: number | null;
   shoko: { id: number; name: string; anidbId: number | null } | null;
-  /** Whether the Shoko series came from the files AniDB matched or from a person picking it. */
-  chosenBy: "automatic" | "you" | null;
+  /** Where the Shoko series came from: AniDB-matched files or TVDB, a person, or a title/AI match. */
+  chosenBy: "automatic" | "you" | "title" | "ai" | null;
+  /** Why a title or AI match chose it, or why it is still waiting on AniDB. */
+  matchReason: string | null;
   offset: number | null;
   episodes: { shokoEpisodeId: number; episode: number; title: string | null; airDate: string | null; hasFile: boolean }[];
   files: {
