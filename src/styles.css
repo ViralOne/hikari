@@ -1879,6 +1879,31 @@ select.field {
   aspect-ratio: 2 / 3;
 }
 
+.skel-line {
+  display: block;
+  height: 11px;
+  border-radius: 99px;
+  flex: none;
+}
+
+/* Same box as a schedule row (.ep), so nothing shifts when the real rows arrive. */
+.skel-ep {
+  pointer-events: none;
+}
+
+/* Inside a card the base is already --surface, so the shimmer starts one step lighter. */
+.skel-ep .skeleton {
+  background-image: linear-gradient(100deg, var(--surface-hi) 30%, var(--border-hi) 50%, var(--surface-hi) 70%);
+}
+
+.skel-cover {
+  display: block;
+  width: 40px;
+  height: 56px;
+  border-radius: 7px;
+  flex: none;
+}
+
 .empty {
   padding: 60px var(--gutter);
   text-align: center;

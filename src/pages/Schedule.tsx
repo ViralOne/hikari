@@ -46,11 +46,32 @@ export function Schedule(props: { token: number; onOpen: (id: number) => void })
 
       <Loading
         fallback={
-          <div class="day-group">
-            <Repeat count={6}>
-              {() => <div class="skeleton" style={{ height: "74px", "margin-bottom": "10px" }} />}
-            </Repeat>
-          </div>
+          <Repeat count={2}>
+            {() => (
+              <section class="day-group" aria-hidden="true">
+                <div class="day-head">
+                  <span class="skeleton skel-line" style={{ width: "72px", height: "15px" }} />
+                  <span class="skeleton skel-line" style={{ width: "48px" }} />
+                  <i class="hr" />
+                  <span class="skeleton skel-line" style={{ width: "64px" }} />
+                </div>
+                <div class="ep-list">
+                  <Repeat count={6}>
+                    {() => (
+                      <div class="ep skel-ep">
+                        <span class="skeleton skel-cover" />
+                        <div class="ep-info">
+                          <span class="skeleton skel-line" style={{ width: "70%", height: "13px" }} />
+                          <span class="skeleton skel-line" style={{ width: "34%", "margin-top": "6px" }} />
+                        </div>
+                        <span class="skeleton skel-line" style={{ width: "38px" }} />
+                      </div>
+                    )}
+                  </Repeat>
+                </div>
+              </section>
+            )}
+          </Repeat>
         }
         on={days()}
       >
