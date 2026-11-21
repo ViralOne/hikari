@@ -23,6 +23,11 @@ Every variable goes in `.env`. Anything left blank disables its feature rather t
 | `FAKE_GUARD_INTERVAL_MINUTES` | no | How often the guard checks the queues. Default `10` |
 | `WATCH_LANGUAGES` | no | Subtitle or audio languages that make a file watchable, as ISO 639-2 codes Sonarr reports (`eng`, `rum`, `jpn`). Files with none of them are listed in Anime health. Default `eng` |
 | `ANILIST_TOKEN` | no | AniList token. Discovery works without one; this adds your list status and progress, and the **Continue the story** and **Ready to start** rows |
+| `AI_PROVIDERS` | no | Which free AI providers settle AniDB matches the title rules score as a tie: `auto` (default: every provider with a key, Groq first, OpenRouter if Groq can't answer), `groq`, `openrouter`, or `openrouter,groq`. Only titles, dates and episode counts are sent, and only for ties |
+| `GROQ_API_KEY` | no | Free key from console.groq.com. Fast, with generous free limits |
+| `GROQ_MODEL` | no | Empty (default) uses the strongest model the key lists that is answering. A model id puts that one first; the others still stand in when it is rate limited or retired |
+| `OPENROUTER_API_KEY` | no | Free key from openrouter.ai/keys. Only its free (`:free`) models are used. 50 free requests a day unless the account ever bought 10 credits; when that runs out OpenRouter rests until it resets |
+| `OPENROUTER_MODEL` | no | Same as `GROQ_MODEL`, for OpenRouter. Settings → AI assistant has a picker and **Refresh models** for both |
 | `ANILIST_ALLOW_WRITES` | no | Default `false`. Set `true` to let Hikari change your AniList status and progress |
 | `ANILIST_SCROBBLE` | no | Default `false`. With writes allowed, moves your list forward as Jellyfin finishes episodes. Needs the webhook below |
 | `AUTO_LINK` | no | Default `false`. Links files Shoko hashed but AniDB never matched, on a timer |

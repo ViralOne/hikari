@@ -117,6 +117,32 @@ export const FIELDS = [
   { key: "autoLink.enabled", env: "AUTO_LINK", type: "boolean", group: "autolink", label: "Link unmatched files automatically" },
   { key: "autoLink.intervalMinutes", env: "AUTO_LINK_INTERVAL_MINUTES", type: "number", min: 5, max: 1440, group: "autolink", label: "Every (minutes)" },
   { key: "autoLink.graceHours", env: "AUTO_LINK_GRACE_HOURS", type: "number", min: 0, max: 168, group: "autolink", label: "Leave new files to AniDB for (hours)" },
+  {
+    key: "ai.providers",
+    env: "AI_PROVIDERS",
+    type: "text",
+    group: "ai",
+    label: "Use",
+    placeholder: "auto"
+  },
+  {
+    key: "groq.apiKey",
+    env: "GROQ_API_KEY",
+    type: "secret",
+    group: "ai",
+    label: "Groq API key",
+    hint: "Free at console.groq.com. Fast, with generous free limits"
+  },
+  { key: "groq.model", env: "GROQ_MODEL", type: "text", group: "ai", label: "Groq model", placeholder: "Automatic" },
+  {
+    key: "openrouter.apiKey",
+    env: "OPENROUTER_API_KEY",
+    type: "secret",
+    group: "ai",
+    label: "OpenRouter API key",
+    hint: "Free at openrouter.ai/keys. Many free models, but 50 free requests a day unless you ever bought 10 credits"
+  },
+  { key: "openrouter.model", env: "OPENROUTER_MODEL", type: "text", group: "ai", label: "OpenRouter model", placeholder: "Automatic" },
   { key: "autoLink.maxPerRun", env: "AUTO_LINK_MAX_PER_RUN", type: "number", min: 1, max: 200, group: "autolink", label: "Maximum links per run" }
 ];
 

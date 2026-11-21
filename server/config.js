@@ -52,6 +52,22 @@ export const config = {
     url: trim(process.env.SHOKO_URL),
     key: (process.env.SHOKO_API_KEY || "").trim()
   },
+  // Optional free LLMs that settle the AniDB matches the rules find too close to call (see ai.js).
+  // Nothing is sent anywhere without a key. AI_PROVIDERS: auto, groq, openrouter, groq,openrouter
+  // or openrouter,groq.
+  ai: {
+    providers: (process.env.AI_PROVIDERS || "auto").trim()
+  },
+  openrouter: {
+    apiKey: (process.env.OPENROUTER_API_KEY || "").trim(),
+    model: (process.env.OPENROUTER_MODEL || "").trim()
+  },
+  groq: {
+    apiKey: (process.env.GROQ_API_KEY || "").trim(),
+    // Empty or "auto": the strongest model your key can use that is answering. A model id puts that
+    // one first; the others still stand in when it is rate limited or gone.
+    model: (process.env.GROQ_MODEL || "").trim()
+  },
   anilist: {
     token: (process.env.ANILIST_TOKEN || "").trim(),
     // Writing to your AniList list stays off unless you ask for it.

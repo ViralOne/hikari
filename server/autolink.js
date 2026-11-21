@@ -3,6 +3,8 @@ import { basename, hoursSince, withinADay } from "./dates.js";
 import * as jellyfin from "./jellyfin.js";
 import * as shoko from "./shoko.js";
 import * as sonarr from "./sonarr.js";
+import { ensureShokoSeries, findSeasonSeries } from "./seasonfind.js";
+import { airTiming, airingRun } from "./seasonmatch.js";
 
 // Keeps Shoko's episode links in step with what Sonarr has actually imported.
 //
@@ -190,7 +192,12 @@ export function pickByTitle(titles, candidates, titlesOf) {
 // Which Shoko series one Sonarr season is, its episodes, and the numbering offset AniDB proved
 // for it. Shared with the link dialog, which lets a person override the series (`shokoId`) but
 // otherwise proposes exactly what this sweep would do.
-export async function seasonContext({ series, seasonNumber, episodes, index, shokoIndex, shokoId = null }) {
+//
+// In order: a person's choice, a file AniDB matched by hash in this very season, the one Shoko
+// series carrying the show's TVDB id (only if it was airing when this season did), and last the
+// title match in seasonmatch.js. Returns null when nothing fits, or { shokoId: null, pending } while
+// Shoko fetches a newly found series from AniDB.
+export async function seasonContext({ series, seasonNumber, episodes, index, shokoIndex, shokoId = null, focusNumbers = null }) {
   const anchors = [];
   for (const episode of episodes) {
     if (episode.seasonNumber !== seasonNumber || !episode.relativePath) continue;
@@ -203,18 +210,50 @@ export async function seasonContext({ series, seasonNumber, episodes, index, sho
     }
   }
 
-  // A file AniDB matched in this very season beats the TVDB bridge, which is missing for some
-  // seasons and shared by all of them for others.
-  // The TVDB fallback only when exactly one Shoko series carries that id. Link Click's last season
-  // and its Bridon Arc spin-off share one, and picking either is a guess.
-  const byTvdb = series ? shokoIndex.byTvdbAll?.get(Number(series.tvdbId)) || [] : [];
-  const fallback = byTvdb.length === 1 ? byTvdb[0].shokoId : null;
-  const chosen = shokoId ?? anchorSeries(anchors) ?? fallback ?? null;
-  if (!chosen) return null;
+  let chosen = shokoId ?? anchorSeries(anchors) ?? null;
+  let chosenBy = shokoId ? "you" : chosen ? "automatic" : null;
+  let reason = null;
+  let detail = null;
 
-  const detail = await shoko.fileDetail(chosen);
+  // The TVDB fallback only when exactly one Shoko series carries that id. Link Click's last season
+  // and its Bridon Arc spin-off share one, and picking either is a guess. It must also have been on
+  // air when this season was: TVDB ids are per show, so a new season otherwise lands on the last one.
+  if (!chosen && series) {
+    const byTvdb = shokoIndex.byTvdbAll?.get(Number(series.tvdbId)) || [];
+    if (byTvdb.length === 1) {
+      const candidate = await shoko.fileDetail(byTvdb[0].shokoId);
+      if (coversSeason(candidate.episodes, episodes, seasonNumber, focusNumbers)) {
+        chosen = byTvdb[0].shokoId;
+        chosenBy = "automatic";
+        detail = candidate;
+      }
+    }
+  }
+
+  if (!chosen && series) {
+    const found = await findSeasonSeries({ series, seasonNumber, episodes, focusNumbers }).catch(() => null);
+    if (found?.pick) {
+      const id = await ensureShokoSeries(found.pick);
+      reason = `${found.pick.via === "ai" ? "AI" : "Title"} match: ${found.pick.title} (${found.pick.reason})`;
+      if (!id) return { shokoId: null, pending: `${reason}. Shoko is fetching it from AniDB; this links on the next sweep` };
+      chosen = id;
+      chosenBy = found.pick.via;
+    }
+  }
+
+  if (!chosen) return null;
+  detail ??= await shoko.fileDetail(chosen);
   const offset = numberingOffset(anchors.filter(anchor => anchor.shokoSeriesId === chosen), detail.episodes);
-  return { shokoId: chosen, detail, offset };
+  return { shokoId: chosen, detail, offset, chosenBy, reason };
+}
+
+// True when the Shoko series was airing when this season's run of episodes began.
+function coversSeason(anidbEpisodes, episodes, seasonNumber, focusNumbers) {
+  const run = airingRun(episodes.filter(episode => episode.seasonNumber === seasonNumber && episode.episodeNumber > 0), focusNumbers);
+  const runStart = Math.min(...run.map(episode => Date.parse(episode.airDate || "")).filter(Number.isFinite));
+  const aired = anidbEpisodes.map(episode => Date.parse(episode.airDate || "")).filter(Number.isFinite);
+  if (!Number.isFinite(runStart) || aired.length === 0) return true;
+  return airTiming(Math.min(...aired), anidbEpisodes.length, runStart) !== null;
 }
 
 async function plan(maxPerRun) {
@@ -268,16 +307,21 @@ async function plan(maxPerRun) {
     }
 
     for (const [seasonNumber, items] of seasons) {
-      const context = await seasonContext({ series, seasonNumber, episodes, index, shokoIndex });
+      const context = await seasonContext({
+        series, seasonNumber, episodes, index, shokoIndex,
+        focusNumbers: items.map(({ episode }) => episode.episodeNumber)
+      });
+      if (context?.pending) {
+        for (const { file } of items) skipped.push({ fileId: file.fileId, reason: context.pending });
+        continue;
+      }
       if (!context) {
-        // Nothing to link to. Shoko's series list only contains anime it has matched at least
-        // one file for, so a show where every file failed has no local AniDB record and no
-        // episodes to point at. Adding it needs an AniDB id, which only a title search could
-        // supply, and guessing that is exactly what the id bridges exist to avoid.
+        // Nothing to link to: no id bridge, and the title search found no clear winner (or two
+        // that score alike with no AI to settle it). The link dialog shows the candidates.
         for (const { file } of items) {
           skipped.push({
             fileId: file.fileId,
-            reason: `Shoko has no series for ${series.title}, so add it there once and this will link afterwards`
+            reason: `no AniDB series clearly matches ${series.title} season ${seasonNumber}; pick it in the link dialog`
           });
         }
         continue;

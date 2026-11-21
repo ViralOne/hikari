@@ -2363,3 +2363,13 @@ select.field {
   align-items: center;
   gap: 10px;
 }
+
+.ai-picker .label-row {
+  flex-wrap: nowrap;
+}
+
+.ai-picker select.field {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+}
