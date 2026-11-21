@@ -80,7 +80,9 @@ const OPENROUTER_MODELS = [
   { id: "deepseek/deepseek-chat-v3:free", pricing: free, context_length: 163840, supported_parameters: ["response_format", "structured_outputs"] },
   { id: "meta-llama/llama-3.3-70b-instruct:free", pricing: free, context_length: 131072, supported_parameters: ["response_format"] },
   { id: "openai/gpt-4o", pricing: { prompt: "0.0000025", completion: "0.00001" }, context_length: 128000, supported_parameters: ["response_format", "structured_outputs"] },
-  { id: "openrouter/free", pricing: free, context_length: 0, supported_parameters: [] }
+  { id: "openrouter/free", pricing: free, context_length: 0, supported_parameters: [] },
+  { id: "google/lyria-3-pro-preview", pricing: free, context_length: 0, supported_parameters: ["response_format"] },
+  { id: "liquid/lfm-3-1.7b:free", pricing: free, context_length: 32768, supported_parameters: ["response_format", "structured_outputs"] }
 ];
 const reply = (status, body, extra = {}) => ({
   ok: status < 300, status,
@@ -115,8 +117,9 @@ await ai.refreshModels("groq");
 await ai.refreshModels("openrouter");
 check("Groq: only chat models, strongest and strict-capable first",
   ai.describe("groq").models.map(m => m.id).join() === "openai/gpt-oss-120b,llama-3.3-70b-versatile,llama-3.1-8b-instant");
-check("OpenRouter: only free models, never the paid ones or the router",
-  ai.describe("openrouter").models.map(m => m.id).join() === "deepseek/deepseek-chat-v3:free,meta-llama/llama-3.3-70b-instruct:free");
+check("OpenRouter: only free chat models, in its own order, tiny ones last",
+  ai.describe("openrouter").models.map(m => m.id).join() === "deepseek/deepseek-chat-v3:free,meta-llama/llama-3.3-70b-instruct:free,liquid/lfm-3-1.7b:free",
+  ai.describe("openrouter").models.map(m => m.id).join());
 check("automatic asks Groq first, then OpenRouter", ai.order().join() === "groq,openrouter");
 setup({ groq: "", openrouter: "o-key" });
 check("a provider without a key is never asked", ai.order().join() === "openrouter");

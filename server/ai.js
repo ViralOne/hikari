@@ -42,22 +42,32 @@ export const PROVIDERS = {
   openrouter: {
     label: "OpenRouter",
     base: "https://openrouter.ai/api/v1",
-    // Free text models that take a response_format at all; the list says which do strict schemas.
-    listPath: "/models?max_price=0&supported_parameters=response_format",
+    // Free text models that take a response_format at all, most used this week first: OpenRouter's
+    // free catalogue changes weekly and few ids carry a size, so popularity is the best signal of
+    // which ones answer well. Only ":free" variants count; a few paid previews are priced at 0 too.
+    listPath: "/models?max_price=0&supported_parameters=response_format&sort=top-weekly",
     settings: () => config.openrouter,
     rank: models =>
       models
-        .filter(model => model.pricing && Number(model.pricing.prompt) === 0 && Number(model.pricing.completion) === 0)
-        .filter(model => model.id !== "openrouter/free" && !NOT_CHAT.test(model.id))
-        .map(model => ({
+        .filter(model => model.id.endsWith(":free") && !NOT_CHAT.test(model.id))
+        .filter(model => !model.pricing || (Number(model.pricing.prompt) === 0 && Number(model.pricing.completion) === 0))
+        .map((model, index) => ({
           id: model.id,
           owner: model.id.split("/")[0] || null,
           contextWindow: model.context_length || null,
-          strict: (model.supported_parameters || []).includes("structured_outputs")
+          strict: (model.supported_parameters || []).includes("structured_outputs"),
+          index
         }))
-        .sort(byStrength)
+        // Small models guess; they go last. Otherwise OpenRouter's order stands.
+        .sort((a, b) => Number(isTiny(a.id)) - Number(isTiny(b.id)) || a.index - b.index)
+        .map(({ index, ...model }) => model)
   }
 };
+
+function isTiny(id) {
+  const billions = size(id);
+  return billions > 0 && billions < 8;
+}
 
 const state = {};
 for (const name of Object.keys(PROVIDERS)) state[name] = fresh();
