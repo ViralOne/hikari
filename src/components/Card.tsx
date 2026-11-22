@@ -3,6 +3,7 @@ import type { Anime } from "../api";
 import { countdown, formatLabel, seasonLabel, statusLabel } from "../format";
 import { LibraryBadge, ScoreBadge, WatchBadge, WatchBar } from "./Badges";
 import { Icon } from "./Icon";
+import { cover as coverSet } from "../img";
 
 export function Card(props: { anime: Anime; onOpen: (id: number) => void; onHide?: (anime: Anime) => void }) {
   // Without an explicit label the accessible name is the concatenation of every badge and
@@ -46,9 +47,13 @@ export function Card(props: { anime: Anime; onOpen: (id: number) => void; onHide
   return (
     <div class="card">
       <button class="card-main" onClick={() => props.onOpen(props.anime.id)} aria-label={label()}>
-        <div class="card-art" aria-hidden="true">
+        <div class="card-art" aria-hidden="true" style={props.anime.accent ? { "background-color": props.anime.accent } : undefined}>
           <Show when={props.anime.cover} fallback={<div class="skeleton" style={{ height: "100%" }} />}>
-            {cover => <img src={cover()} alt="" loading="lazy" decoding="async" />}
+            {cover => {
+              // Rails draw cards at 158px (168px on a phone); grids stretch them a little wider.
+              const image = coverSet(cover(), "(max-width: 640px) 45vw, 190px");
+              return <img src={image.src} srcset={image.srcset} sizes={image.sizes} alt="" loading="lazy" decoding="async" />;
+            }}
           </Show>
 
           <div class="corner">

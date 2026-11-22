@@ -23,6 +23,7 @@ import { inBackground } from "./anilist-queue.js";
 import * as planning from "./planning.js";
 import * as autolink from "./autolink.js";
 import * as warm from "./warm.js";
+import * as images from "./images.js";
 import * as hidden from "./hidden.js";
 import * as mapping from "./mapping.js";
 import * as scrobble from "./scrobble.js";
@@ -1799,6 +1800,33 @@ function snapshotBody(now, airing, queue, downloading, requests) {
   };
 }
 
+// AniList's covers and banners from Hikari's own address, kept on disk and marked as never changing,
+// so the browser and a CDN in front of Hikari (Cloudflare) keep them. Outside /api and outside the
+// login on purpose: these are public AniList images, and a CDN can only cache what it may give to
+// everyone. images.allowed() admits AniList anime cover and banner paths on one fixed host only.
+app.get("/img/anilist/*", async c => {
+  const path = c.req.path.slice("/img/anilist/".length);
+  if (!images.allowed(path)) return c.text("not found", 404);
+  const check = rateHit(`img:${clientAddress(c)}`, { max: Math.max(config.rateLimit * 4, 600), windowMs: 60 * 1000 });
+  if (!check.allowed) {
+    c.header("Retry-After", String(check.retryIn));
+    return c.text("too many requests", 429);
+  }
+  try {
+    const image = await images.get(path);
+    if (!image) {
+      c.header("Cache-Control", "public, max-age=300");
+      return c.text("not found", 404);
+    }
+    c.header("Content-Type", image.type);
+    c.header("Cache-Control", images.IMMUTABLE);
+    return c.body(image.body);
+  } catch {
+    c.header("Cache-Control", "no-store");
+    return c.text("AniList did not answer", 502);
+  }
+});
+
 const distDir = new URL("../dist/", import.meta.url);
 const hasBuild = existsSync(new URL("index.html", distDir));
 
@@ -1932,6 +1960,7 @@ serve({ fetch: app.fetch, port: config.port, hostname: config.host }, info => {
   autolink.start();
   guard.start();
   warm.start(buildDiscover);
+  images.start();
 
   // Detached, and only where it is read. refresh() resolves rather than throws, and the request
   // matcher falls back to titles for as long as this has not landed, so nothing waits on it.

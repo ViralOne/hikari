@@ -1,6 +1,7 @@
 import { For, Show } from "solid-js";
 import type { AnimeDetail } from "../../api";
 import { formatLabel, seasonLabel, statusLabel } from "../../format";
+import { cover as coverSet } from "../../img";
 
 /** Cover, titles, and the facts that need no integration to be true. */
 export function PanelHeader(props: { anime: AnimeDetail }) {
@@ -8,7 +9,12 @@ export function PanelHeader(props: { anime: AnimeDetail }) {
     <>
       <div class="panel-top">
         <div class="panel-cover">
-          <Show when={props.anime.cover}>{cover => <img src={cover()} alt="" />}</Show>
+          <Show when={props.anime.cover}>
+            {cover => {
+              const image = coverSet(cover(), "160px");
+              return <img src={image.src} srcset={image.srcset} sizes={image.sizes} alt="" />;
+            }}
+          </Show>
         </div>
         <div>
           <h2 class="panel-title">{props.anime.title.display}</h2>

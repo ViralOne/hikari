@@ -2,6 +2,7 @@ import { config } from "./config.js";
 import { cached, prime } from "./cache.js";
 import { request } from "./http.js";
 import { createQueue, readLimits } from "./anilist-queue.js";
+import * as images from "./images.js";
 
 // Overridable only so the integration tests can point it at an in-process fake (scripts/lib/fakes.mjs).
 const ENDPOINT = (process.env.ANILIST_URL || "https://graphql.anilist.co").trim();
@@ -254,6 +255,10 @@ function rememberMedia(media) {
   for (const item of media) {
     if (item?.id) prime(`anilist:media:${item.id}`, item, MEDIA_TTL_MS, { staleFor: MEDIA_TTL_MS });
   }
+  // The same rows' images, in both card sizes (the browser picks by screen), onto the NAS ahead of
+  // the first view. In the background: a page never waits on this.
+  const urls = media.flatMap(item => [item?.cover, item?.cover?.replace("/cover/large/", "/cover/medium/"), item?.banner]).filter(Boolean);
+  images.prewarm(urls).catch(() => {});
 }
 
 function shape(media) {

@@ -10,6 +10,7 @@ import { RequestBox } from "./detail/RequestBox";
 import { ShokoBox } from "./detail/ShokoBox";
 import { SonarrBox } from "./detail/SonarrBox";
 import { Icon } from "./Icon";
+import { local } from "../img";
 
 export function Detail(props: {
   id: number;
@@ -87,7 +88,7 @@ export function Detail(props: {
               <>
                 <div
                   class="panel-hero"
-                  style={{ "background-image": `url(${anime().banner || anime().cover || ""})` }}
+                  style={{ "background-image": `url(${local(anime().banner || anime().cover)})` }}
                 />
 
                 <div class="panel-body">

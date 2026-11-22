@@ -1,13 +1,14 @@
 import { Show } from "solid-js";
 import type { Anime } from "../api";
 import { countdown, formatLabel, seasonLabel, statusLabel } from "../format";
+import { local } from "../img";
 
 export function Hero(props: { anime: Anime; eyebrow: string; onOpen: (id: number) => void }) {
   return (
     <header class="hero">
       <div
         class="hero-bg"
-        style={{ "background-image": `url(${props.anime.banner || props.anime.cover || ""})` }}
+        style={{ "background-image": `url(${local(props.anime.banner || props.anime.cover)})` }}
       />
       <div class="hero-veil" />
 
