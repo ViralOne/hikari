@@ -2,6 +2,7 @@ import { For, Show } from "solid-js";
 import type { FranchiseEntry } from "../../api";
 import { seasonLabel, statusLabel } from "../../format";
 import { LibraryBadge, WatchBadge } from "../Badges";
+import { cover as coverSet } from "../../img";
 
 /**
  * Where this season falls in the story, with what of it is already in the library.
@@ -33,7 +34,10 @@ export function FranchiseStrip(props: {
             >
               <div class="franchise-art">
                 <Show when={entry.cover} fallback={<div class="skeleton" style={{ height: "100%" }} />}>
-                  {cover => <img src={cover()} alt="" loading="lazy" decoding="async" />}
+                  {cover => {
+                    const image = coverSet(cover(), "92px");
+                    return <img src={image.src} srcset={image.srcset} sizes={image.sizes} alt="" loading="lazy" decoding="async" />;
+                  }}
                 </Show>
                 <div class="corner">
                   <WatchBadge watch={entry.watch} />

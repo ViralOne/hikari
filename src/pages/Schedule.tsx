@@ -2,6 +2,7 @@ import { createMemo, createSignal, For, Loading, Repeat, Show } from "solid-js";
 import { getSchedule, type ScheduleEntry } from "../api";
 import { LibraryBadge } from "../components/Badges";
 import { clockTime, dateLabel, dayKey, dayLabel } from "../format";
+import { cover as coverSet } from "../img";
 
 const fetchSchedule = (days: number, _token: number) => getSchedule(days);
 
@@ -98,7 +99,10 @@ export function Schedule(props: { token: number; onOpen: (id: number) => void })
                     {entry => (
                       <button class="ep" onClick={() => props.onOpen(entry.media.id)}>
                         <Show when={entry.media.cover}>
-                          {cover => <img src={cover()} alt="" loading="lazy" />}
+                          {cover => {
+                            const image = coverSet(cover(), "40px");
+                            return <img src={image.src} srcset={image.srcset} sizes={image.sizes} alt="" loading="lazy" decoding="async" />;
+                          }}
                         </Show>
                         <div class="ep-info">
                           <div class="ep-title">{entry.media.title.display}</div>

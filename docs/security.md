@@ -83,6 +83,22 @@ file, because it has to be compared against what callers send, so a copy of that
 - `POST /api/settings` refuses the `token` field, so the only way to set it is the dedicated route.
   You cannot choose the value; a generated one is uniformly random, which a chosen one rarely is.
 
+## Images and a CDN in front
+
+AniList covers and banners are served from Hikari at `/img/anilist/...`, outside the login, with
+`Cache-Control: public, max-age=31536000, immutable`. They are public AniList images, and a CDN can only
+cache what it may hand to everyone. The route fetches nothing but AniList's anime cover and banner paths on
+`s4.anilist.co`, so it cannot be used to reach anything else. Everything under `/api` stays `no-store`
+and behind the login.
+
+Behind Cloudflare, covers are cached at the edge as long as no rule bypasses the cache for them. If you
+have a "bypass cache" or "cache everything" rule for the Hikari hostname, add one above it:
+
+- **When:** URI path starts with `/img/`
+- **Then:** Eligible for cache, Edge TTL "Use cache-control header if present", Browser TTL "Respect origin"
+
+Never make `/api/` eligible for cache: those responses are personal.
+
 ## Requiring a login
 
 Set `AUTH=true`, or tick **Require a Jellyfin login** under Settings, and Hikari asks for a
