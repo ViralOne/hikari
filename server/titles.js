@@ -68,7 +68,8 @@ export function compareTitles(fromName, sonarrTitle) {
   const a = titleKey(fromName);
   const b = titleKey(sonarrTitle);
   if (!a || !b || PLACEHOLDER.test(a) || PLACEHOLDER.test(b)) return "unknown";
-  if (a === b || a.includes(b) || b.includes(a)) return "match";
+  // One title inside the other counts only on whole words: "Confession" must not match "Confess".
+  if (a === b || containsWords(a, b) || containsWords(b, a)) return "match";
   const left = words(a);
   const right = words(b);
   if (left.size === 0 || right.size === 0) return "unknown";
@@ -78,8 +79,14 @@ export function compareTitles(fromName, sonarrTitle) {
   return shared / Math.min(left.size, right.size) >= 0.6 ? "match" : "unknown";
 }
 
-// The one episode of a series whose title matches, or null (none, or more than one).
+const containsWords = (outer, inner) => ` ${outer} `.includes(` ${inner} `);
+
+// The one episode of a series whose title matches, or null (none, or more than one). An exact title
+// settles it when looser matches are also around.
 export function episodeByTitle(title, episodes) {
   const hits = episodes.filter(episode => compareTitles(title, episode.title) === "match");
-  return hits.length === 1 ? hits[0] : null;
+  if (hits.length === 1) return hits[0];
+  const key = titleKey(title);
+  const exact = hits.filter(episode => titleKey(episode.title) === key);
+  return exact.length === 1 ? exact[0] : null;
 }
