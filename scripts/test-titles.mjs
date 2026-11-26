@@ -32,6 +32,10 @@ check("case and punctuation do not matter", compareTitles("Jae", "JAE") === "mat
 check("small shared words do not make a match", compareTitles("The Caged Beast", "The Forgotten Past") === "mismatch");
 check("a reworded title is never called a mismatch", compareTitles("The Exit Disappears", "The Vanishing Exit") !== "mismatch");
 check("placeholders are unknown", compareTitles("Welcome Home", "TBA") === "unknown");
+check("a title is not matched by a word it merely starts with", compareTitles("Confession", "Confess") !== "match");
+check("a shorter title still matches on whole words", compareTitles("Do You Believe", "Do You Believe in Reincarnation") === "match");
+check("an exact title wins over looser matches",
+  episodeByTitle("Welcome Home", [{ id: 1, title: "Welcome Home" }, { id: 2, title: "Welcome Home, Part 2" }])?.id === 1);
 check("finding the one episode by title",
   episodeByTitle("Chinatown Investigation", [{ id: 1, title: "Puzzle" }, { id: 2, title: "Chinatown Investigation" }])?.id === 2);
 
